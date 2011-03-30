@@ -7,7 +7,7 @@ Author: Dan A. Muresan (danmbox at gmail dot com)
 
 1. DESCRIPTION:
 
-SHUT Audio Tools are lightweight tools for playing, recording and
+Shut Audio Tools are lightweight tools for playing, recording and
 editing music on Linux. They support Jack, Pulse Audio and ALSA.
 They run in a text terminal, or in GUI mode. Currently included are:
 
@@ -22,8 +22,6 @@ record with Shut Record, view with mhwaveedit and retry until happy.
 
 * Shut Audio Control (shut-actl), a GUI for managing Pulse Audio,
 Jack and their interactions
-
-See man pages for details.
 
 
 2. DEPENDENCIES:
@@ -52,7 +50,16 @@ make DESTDIR=build/ prefix=/usr install
 cd build; tar cvzf ../shut-audio-tools.tar.gz .
 
 
-4. COPYRIGHT:
+4. RUNNING
+
+In a desktop environment (Gnome, KDE, LXDE etc.), ShutLP is a handler
+for audio files, and Shut Record is a handler for folders -- so you
+can run them via the "Open With..." dialog (or equivalents).
+
+See the man pages for command-line arguments.
+
+
+5. COPYRIGHT:
 
 Copyright 2010-2011 Dan A. Muresan
 

@@ -1,0 +1,649 @@
+#!/bin/sh
+set -e; set -u
+
+# Copyright (C) 2010-2011 Dan Muresan
+# Part of shut-audio-tools (http://danmbox.github.com/shut-audio-tools/)
+
+# Comments @EOF
+
+MYNAME=${0##*/}; MYVERSION="1.0"
+
+printusage () {
+cat <<EOF
+Usage: $MYNAME --setup AUDIOFILE
+  or:  $MYNAME [OPTIONS] FILE [-- MPLAYER_ARGS...]
+  or:  $MYNAME [OPTIONS] --files FILE... [-- MPLAYER_ARGS...]
+  or:  $MYNAME { -h | --help | -? | --version }
+
+Gaplessly plays audio in a loop (via mplayer).
+
+  --setup      brings up a configuration dialog, then starts playing
+  --bpm BPM    sets the BPM for the count-in metronome
+  --bcnt N     sets the number of count-in beats
+  --lash       runs under lash_wrap
+  --text       disables the GUI
+  --files      plays a sequence of audio files
+  --print-log  logs to stdout
+  --debug      enables debugging
+
+To play from stdin, specify "-". For "--files", all inputs must have
+the same format (rate and bits / sample).
+
+In desktop environments, shutlp is a handler for audio files.
+
+Report bugs at https://github.com/danmbox/shut-audio-tools/issues
+EOF
+}
+
+printversion () {
+cat <<EOF
+$MYNAME version $MYVERSION
+Copyright (C) 2010-2011 Dan Muresan
+EOF
+}
+
+unset GREP_OPTIONS; unset GREP_COLOR; unset GREP_COLORS
+
+SHAREDFNSTRSTR=$(cat <<"EOF"
+mysleep () {
+  perl -we "select (undef, undef, undef, $1)" || sleep "$1"
+}
+# withfpid "/tmp/recpid" exec arecord
+# withfpid "/tmp/recpid" "eval exec" "$cmd" "$@"
+# withfpid -"/tmp/recpid" setpgrpexec arecord
+withfpid () {
+  set -- "0" "$@"
+  (
+    p=`exec sh -c 'echo "$PPID"'`
+    if test "X${2#-}" = "X$2"; then echo "$p"; else echo -"$p"; fi >"${2#-}-tmp"
+    mv "${2#-}-tmp" "${2#-}"
+    e="$3"; shift 3; $e "$@"
+  ) || set -- "$?" "$2"
+  : >"${2#-}"; return "$1"
+}
+EOF
+)
+eval "$SHAREDFNSTRSTR"
+# setpgrp ls ls /
+# setpgrp sh fictiousname -c 'ls "$1"' fictious2 /
+# (setpgrpexec cmd arg)  # wait for completion
+setsidexec () {
+  exec perl -we 'use strict; use POSIX qw (setsid); setsid; my $p = shift; exec $p @ARGV or die $!' "$@"
+}
+setpgrpexec () {
+  exec perl -we 'use strict; setpgrp; my $p = shift; exec $p @ARGV or die $!' "$@"
+}
+# succeeds if all PIDs exist
+existspid () {
+  while test $# -gt 0; do kill -s 0 -- "$1" || return 1; shift; done
+} 2>/dev/null
+# Outputs all arguments starting with the first live PID.
+# Always succeeds.
+alivepids () {
+  while test $# -gt 0; do
+    if existspid "$1"; then echo $*; break; else shift; fi
+  done
+  :
+}
+# Expands a list of PIDs and/or PID files.
+# Each can be empty and/or prefixed by a "-" sign.
+# Always succeeds.
+expandfpids () (
+  for p; do
+    up="${p#-}"
+    if test "X${up#/}" = "X$up"
+    then test -z "$up" || printf '%s ' "$p"
+    else
+      s=""; test "X$up" = "X$p" || s="-"
+      up=`cat "$up" 2>/dev/null || :`
+      test -z "$up" || printf '%s%s ' "$s" "$up"
+    fi
+  done
+  :
+)
+# killfpids INT PID1 .. PIDn  # succeeds if any PIDs are non-null and exist
+killfpids () {
+  test -n "${2:-}" || set -- TERM "$1"
+  kill -s "$1" -- `shift; expandfpids "$@"`
+} >/dev/null 2>&1
+# killpids2 INT 1 PID1 .. PIDn  # always succeeds
+killfpids2 () {
+  case $# in
+    1) set -- TERM 1 "$1" ;;
+    2) set -- "$1" 1 "$2" ;;
+  esac
+  kill -s "$1" -- `shift 2; expandfpids "$@"` || :
+  if test 0 -lt $(shift 2; alivepids $(expandfpids "$@") | wc -w); then
+    mysleep "$2"
+    kill -s KILL -- `shift 2; expandfpids "$@"` || :
+  fi
+  :
+} >/dev/null 2>&1
+existsfpid () (
+  for p; do
+    p1=`expandfpids "$p"`
+    existspid "$p1" || { echo "$p"; return 1; }
+  done
+)
+
+BPM=60; BEATCNT=""
+STDIN=''; DELAY0=0
+FRONTEND=textmain
+if test -n "${DISPLAY:-}" && which python >/dev/null 2>&1
+then FRONTEND=tkintermain
+else FRONTEND=textmain
+fi
+
+D=`mktemp -d /tmp/"$MYNAME".XXXXXX`
+: >"$D"/log
+TRAPPED="INT TERM EXIT"
+trap 'set +e; rm -rf "$D"; exit 1' $TRAPPED
+
+setupmode () {
+rm -rf "$D"
+exec python - "$@" <<"EOF"
+from Tkinter import *
+import tkFileDialog
+import os, commands
+
+# based on http://effbot.org/tkinterbook/tkinter-dialog-windows.htm
+class Dialog (Toplevel):
+
+  def __init__ (self, parent, title = None, embed = False, run = True, transient = True):
+
+    if not embed:
+      Toplevel.__init__ (self, parent)
+      if transient and parent and parent.winfo_viewable():
+        self.transient (parent)
+      self.frame = self
+    else:
+      f = Frame (parent, container = True, takefocus = True); f.pack ()
+      Toplevel.__init__ (self, use = f.winfo_id (), takefocus = True)
+      self.frame = Frame (self); self.frame.pack ()
+    self.parent = parent
+    if title: self.title (title)
+
+    self.result = None
+
+    body = Frame (self.frame)
+    self.initial_focus = self.body (body)
+    body.pack ()
+    self.stdbuttons ()
+    self.protocol ("WM_DELETE_WINDOW", self.cancel)
+
+    self.grab_set ()
+    if parent and not embed:
+      self.geometry ("+%d+%d" % (parent.winfo_rootx() + 10,
+                                 parent.winfo_rooty() + 10))
+
+    if not self.initial_focus: self.initial_focus = self
+    self.initial_focus.focus_set ()
+    if (run): self.run ()
+
+  def run (self):
+    if self.parent: self.wait_window (self)
+    else:
+      self.mainloop ()
+
+  # construction hooks
+
+  def body(self, master): pass
+
+  def stdbuttons (self):
+    box = Frame (self.frame)
+    Button (box, text = "OK", command = self.ok, default = ACTIVE).pack(side = LEFT)
+    w = Button(box, text = "Cancel", command = self.cancel).pack(side = LEFT)
+    self.bind ("<Return>", self.ok); self.bind ("<Escape>", self.cancel)
+    box.pack ()
+
+  def ok (self, event=None):
+    if not self.validate (): self.initial_focus.focus_set (); return
+    self.withdraw ()
+    self.update_idletasks ()
+    self.save (); self.cancel ()
+
+  def cancel (self, event = None):
+    if self.parent: self.parent.focus_set ()
+    self.destroy ()
+
+  # command hooks
+
+  def validate (self): return True
+
+  def save (self): pass
+
+def fnameText (fname): return os.path.basename (fname) if fname else "..."
+
+class SetupDialog (Dialog):
+
+  def __init__ (self, master, fname = ""):
+    self.fname = fname
+    Dialog.__init__ (self, master, title = "Settings")
+
+  def body (self, master):
+    Label (master, text = "File").pack (side = LEFT, fill = Y)
+    self.fileButton = Button (master, text = fnameText (self.fname),
+                              command = self.onFileButton)
+    self.fileButton.pack (side = LEFT, fill = Y)
+
+    Label (master, text = "Metronome BPM").pack (side = LEFT, fill = Y)
+    self.bpmEntry = Entry (master, width = 4, takefocus = True)
+    self.bpmEntry.pack (side = LEFT, fill = Y)
+
+    Label (master, text = "Count").pack (side = LEFT, fill = Y)
+    self.bcntVar = StringVar (); self.bcntVar.set ("4")
+    Entry (master, width = 2, textvariable = self.bcntVar).pack (
+      side = LEFT, fill = Y)
+
+    Label (master, text = "Output").pack (side = LEFT, fill = Y)
+    bkends = ["pulse", "jack"]
+    if commands.getoutput ("ps ax | grep '[ /]jackd '") != "": bkends.reverse ()
+    self.bkendVar = StringVar (); self.bkendVar.set (bkends [0])
+    bkendList =  OptionMenu (master, self.bkendVar, *bkends)
+    bkendList.pack (side = LEFT, fill = Y)
+
+    Label (master, text = "ao flags").pack (side = LEFT, fill = Y)
+    self.aoEntry = Entry (master, width = 7)
+    self.aoEntry.pack (side = LEFT, fill = Y)
+
+    return self.bpmEntry
+
+  def onFileButton (self):
+    fname = tkFileDialog.askopenfilename ()
+    if fname: self.fname = fname; self.fileButton.config (text = fnameText (fname))
+
+  def save (self):
+    bcnt = self.bcntVar.get ()
+    bpm = self.bpmEntry.get ()
+    self.result = ["--lash"]
+    if bcnt != "" and bpm != "":
+      self.result += ["--bpm", bpm, "--bcnt", bcnt]
+    self.result += [self.fname, "--", "-ao"]
+    bkend = self.bkendVar.get ()
+    if bkend == "jack": bkend += ":name=shutlp"
+    aoOpts = self.aoEntry.get ()
+    if aoOpts: bkend += ":" + aoOpts
+    self.result += [bkend]
+
+class SetupApp (Tk):
+  def __init__ (self):
+    Tk.__init__ (self); self.withdraw ()
+    self.after (0, self.doDialog)
+
+  def doDialog (self):
+    d = SetupDialog (self, sys.argv [2])
+    if d.result: os.execlp (sys.argv [1], sys.argv [1], *d.result)
+    self.quit ()
+
+SetupApp ().mainloop ()
+
+EOF
+exit 0
+}
+
+while test $# -gt 0; do case "$1" in
+  -h|--help|"-?") printusage; exit ;;
+  --version) printversion; exit ;;
+  --setup) setupmode "$0" "${2:-}" ;;
+  --detach) shift; setsidexec "$0" "$0" "$@" & exit 0 ;;
+  --lash) shift; rm -rf "$D"; exec lash_wrap -s 5 -l "$MYNAME" -- "$0" "$@" || exit 1 ;;
+  --debug) shift; set -x ;;
+  --print-log) shift; echo "Logging to stdout" >>"$D"/log ;;
+  --text) FRONTEND=textmain; shift ;;
+  --delay) DELAY0="$2"; shift 2 ;;
+  --bpm) BPM="$2"; : ${BEATCNT:=4}; shift 2 ;;
+  --bcnt) BEATCNT="$2"; shift 2 ;;
+  *) break ;;
+esac; done
+
+audioin="$1"; shift
+chkfile () {
+  test "X$1" = "X-" &&
+    { set -- "$D"/stdaudioin; STDIN='y'; test -e "$1" || cat >"$1"; test "X$audioin" = "X--files" || audioin="$1"; }
+  NEWAUDIOFLAGS=`audioflags -m "$1"`
+  if test -n "${AUDIOFLAGS:-}"
+    then test "X$AUDIOFLAGS" = "X$NEWAUDIOFLAGS" || { echo "Incompatible audio files"; exit 1; }
+    else AUDIOFLAGS="$NEWAUDIOFLAGS"; SOXAUDIOFLAGS=`audioflags --sox "$1"`
+  fi
+}
+if test "X$audioin" = "X--files"; then
+  for fn in "$@"; do
+    test "X$fn" = "X--" && break
+    chkfile "$fn"
+  done
+else chkfile "$audioin"
+fi
+
+finalcleanup () {
+  exec perl -w - "$D" <<"EOF"
+use strict; use File::Path qw(remove_tree); my ($D) = @ARGV;
+(defined $D and not "" eq $D) or die;
+eval {
+  local $SIG{ALRM} = sub { die "MYALARM" };
+  alarm 3; 1 until -1 == wait; alarm 0;
+};
+if ($@ =~ '^MYALARM') {
+  printf "Forcing jobs to terminate: ";
+  for my $fpid qw(guipid soxlooppid mplayerlooppid) {
+    open (my $f, "$D/$fpid") or next;
+    my $pid = <$f>; close $f; defined $pid or next;
+    chomp $pid; $pid eq "" and next;
+    print "$fpid=$pid "; kill ("KILL", $pid);
+  };
+};
+remove_tree ("$D"); print "Done\n"
+EOF
+}
+traphandler1 () {
+  set +e
+  : >"$D"/stop
+  killfpids "$D"/soxpid
+  if test ! -f "$D"/userquit; then
+    if test -n "${deadfpid:-}"; then
+      ps x; echo 'Files in' "$D" ':'; ls "$D"
+      printf 'Component jobs quit, exiting: %s\n' "${deadfpid##*/}"
+    fi
+    killfpids "$D"/guipid ||
+      for i in 1 2; do killfpids "$D"/mplayerlooppid; mysleep 0.1; done
+  fi
+  finalcleanup
+}
+trap traphandler1 $TRAPPED
+
+echo "$MYNAME: working in" "$D"/
+test -s "$D"/log || test -z "${DISPLAY:-}" || exec >>"$D"/log 2>&1
+
+# start mplayer loop
+mysleep "$DELAY0"
+setpgrpexec sh sh -s <<"EOF" "$SHAREDFNSTRSTR" "$D" "$AUDIOFLAGS" "$@" &
+set -e; set -u
+TRAPPED="INT TERM EXIT"
+trap 'set +e; : >"$D"/mplayerlooppid; : >"$D"/stop; trap - $TRAPPED' $TRAPPED
+eval "$1"; D="$2"; AUDIOFLAGS="$3"; shift 3
+until test $# -eq 0 || test "X$1" = "X--"; do shift; done
+test $# -eq 0 || shift
+MPFLAGS="-quiet -noterm-osd -demuxer rawaudio -rawaudio"
+
+cnt=0
+: >"$D"/mplayerrestart
+until test -e "$D"/stop ||
+  { test ! -e "$D"/mplayerrestart && echo "mplayer quit unexpectedly"; }
+do
+  rm -f "$D"/mplayerrestart
+  cnt=$((cnt + 1))
+  mkfifo "$D"/cmdfifo; mkfifo "$D"/pcmfifo-$cnt
+  withfpid "$D"/mplayerpid exec \
+    mplayer -slave $MPFLAGS $AUDIOFLAGS "$@" "$D"/pcmfifo-$cnt -input file="$D"/cmdfifo
+  rm -f "$D"/pcmfifo-$cnt "$D"/cmdfifo
+done
+EOF
+echo -"$!" >"$D"/mplayerlooppid; echo "mplayer loop: $!"
+
+# Start sox loop
+(export BPM; export BEATCNT; export SOXAUDIOFLAGS
+setpgrpexec sh sh -s <<"EOF" "$SHAREDFNSTRSTR" "$D" "$audioin" "$@"
+set -e; set -u; eval "$1"; D="$2"; audioin="$3"; shift 3;
+TRAPPED="INT TERM EXIT"
+trap 'set +e; : >"$D"/soxlooppid; trap - $TRAPPED' $TRAPPED
+metronome () (
+  cd "$D"
+  perl -we 'use strict;
+  my $beat = 60.0/$ENV{"BPM"}; my $rep = $ENV{"BEATCNT"} - 1; my $o = $ENV{"SOXAUDIOFLAGS"};
+  if (! -e "click.wav") {
+    system ("sox $o -n -t raw - synth 0.1 sine 880 | sox -t raw $o - $o -n $o click.wav trim 0 $beat gain -10");
+    print "Click recorded, flags: $o\n";
+  }
+  system ("sox click.wav -t raw $o - repeat $rep 1>&5 5>&-")
+'
+)
+lspcmfifo () (
+  set +f; exec ls "$D"/pcmfifo-* 2>/dev/null  # | head -n 1  # shouldn't need it
+)
+waitpcm () {
+  until PCMFIFO=`lspcmfifo` || test -e "$D"/stop || test -z "${1:-}"; do mysleep 0.2; done
+  if test -n "$PCMFIFO"; then
+    exec 5> "$PCMFIFO"; rm -f "$PCMFIFO"
+    test -e "$D"/stop || test -z "$BEATCNT" || metronome
+  fi
+  if test -e "$D"/stop; then
+    echo "Sox loop stopping"
+    exit 0
+  fi
+  :
+}
+soxonce () {
+  waitpcm
+  set -- "$1" 0
+  sh -c 'echo "$$" >"$2"; exec sox "$1" -t raw - 1>&5 5>&-' sh "$1" "$D"/soxpid ||
+    set -- "$1" "$?"
+  rm -f "$D"/soxpid
+  if test "$2" -ne 0; then
+    SIG=`kill -l "$2"`
+    if test "$SIG" = "PIPE"; then
+      waitpcm y
+    else echo "sox: received $SIG"; exit 1
+    fi
+  fi
+  :
+}
+waitpcm y
+while :; do
+  if test "X$audioin" = "X--files"; then
+    for fn in "$@"; do
+      test "X$fn" = "X--" && break
+      test "X$fn" = "X-" && fn="$D"/stdaudioin
+      soxonce "$fn"
+    done
+  else soxonce "$audioin"
+  fi
+done
+EOF
+) & echo -"$!" >"$D"/soxlooppid; echo "sox loop: $!"
+
+until { test -e "$D"/cmdfifo && test -e "$D"/soxlooppid; } ||
+  { test -e "$D"/stop && exit 1; }
+do mysleep 0.2
+done
+
+tkintermain () {
+
+# The main shell must be able to receive SIGTERM, so python must go in background
+# and we can't wait() on it -- we'll have to POLL it
+
+withfpid "$D"/guipid exec python - "$MYNAME: ${audioin##*/}" "$D" <<"EOF" &
+import base64
+from cStringIO import StringIO
+import time, os, signal
+from Tkinter import *
+import Image, ImageTk
+from ScrolledText import ScrolledText
+
+appDir = sys.argv [2]
+
+def appDirFile (fname):
+  return appDir + "/" + fname
+
+cmdfifo = None
+app = None
+
+myIconPNG_b64 = """\
+iVBORw0KGgoAAAANSUhEUgAAACAAAAAgAQAAAABbAUdZAAAACXZwQWcAAAAgAAAAIACH+pydAAAA
+OklEQVQIW2P4DwQM+InvIOLz//kgQh5I/LMHEn9AxA8Gdijxx/44SOI5SAmc+I9MfGAAqgMTRFgJ
+JwCWkW4HSVB/UAAAAABJRU5ErkJggg==
+"""
+
+def catfile (fname):
+  try:
+    with open (fname) as f:
+      return f.read ()
+  except IOError: return ""
+
+def tryrm (fname):
+  try:
+    os.remove (fname)
+  except OSError: pass
+
+def opencmd ():
+  global cmdfifo; cmdfifo = None
+  try:
+    cmdfifo = os.fdopen (os.open (appDirFile ("cmdfifo"), os.O_WRONLY | os.O_NONBLOCK), "w", 1)
+  except: return False
+  cmdfifo.write ("get_audio_bitrate\n")
+  return True
+
+def opencmdloop ():
+  while not opencmd (): time.sleep (0.2)
+
+def handleTerm (*args):
+  global cmdfifo
+  if cmdfifo: quitMPlayer ()
+  sys.exit (0)
+
+def quitMPlayer (shutdown = True):
+  global cmdfifo
+  if shutdown:
+    open (appDirFile ("userquit"), "w").close ()
+    open (appDirFile ("stop"), "w").close ()
+  tryrm (appDirFile ("cmdfifo"))
+  cmdfifo.write ("volume 0 1\nquit\n")
+  cmdfifo.close (); cmdfifo = None
+
+# only monochrome
+def setIconBitmap_b64 (root, icon_b64):
+  tmpf = appDirFile ("icon.xbm")
+  Image.open (StringIO (base64.b64decode (icon_b64))).save (tmpf)
+  root.wm_iconbitmap ("@" + tmpf)
+
+class Player (Tk):
+
+  def __init__ (self):
+    Tk.__init__ (self)
+    self.protocol ("WM_DELETE_WINDOW", self.onQuit)
+    self.title ("shutlp: " + sys.argv [1])
+    setIconBitmap_b64 (self, myIconPNG_b64)
+
+    self.cmdFrame = Frame (self)
+    self.cmdFrame.pack (side = TOP, expand = True, fill = BOTH)
+
+    self.paused = IntVar ()
+    self.pauseButton = Checkbutton (self.cmdFrame, text = "Pause", underline = 0,
+                                    indicatoron = False, variable = self.paused,
+                                    command = self.onPause)
+    self.bind_all ("p", lambda e: self.pauseButton.invoke ())
+    self.pauseButton.pack (side = LEFT)
+
+    self.vol = 50.0
+    self.updVol = None
+    self.volScale = Scale (self.cmdFrame, label = "Volume", from_ = 0, to = 100,
+                           resolution = 0.5, bigincrement = 25, orient = HORIZONTAL,
+                           command = self.onSetVol)
+    self.volScale.set (self.vol)
+    self.volScale.pack (side = LEFT)
+
+    self.nextButton = Button (self.cmdFrame, text = "Restart", underline = 0,
+                              command = self.onNext)
+    self.bind_all ("n", lambda e: self.nextButton.invoke ())
+    self.nextButton.pack (side = LEFT)
+
+    self.logShown = IntVar (); self.logShown.set (False)
+    self.logFrame = None
+    self.logButton = Checkbutton (self.cmdFrame, text = "Log", indicatoron = False,
+                                  variable = self.logShown, command = self.onShowLog)
+    self.logButton.pack (side = LEFT)
+
+    self.quitButton = Button (self.cmdFrame, text = "Quit", underline = 0,
+                              command = self.onQuit)
+    self.bind_all ("q", lambda e: self.quitButton.invoke ())
+    self.quitButton.pack (side = LEFT)
+
+    self.poll ()  # tkinter blocks signals otherwise
+
+  def poll (self): self.after (200, self.poll)
+
+  def onPause (self):
+    cmdfifo.write ("pause\n")
+
+  def onNext (self):
+    open (appDirFile ("mplayerrestart"), "w").close ()
+    quitMPlayer (False)
+    self.paused.set (0)
+    opencmdloop ()
+
+    vol = self.vol; self.vol = 0.0; self.setVol (vol);
+
+  def setVol (self, vol):
+    if self.vol != vol:
+      cmdfifo.write ("volume {0} 1\n".format (vol))
+      self.vol = vol
+      self.pauseButton.deselect ()
+
+  def onSetVol (self, vol):
+    vol = float (vol)
+    if self.updVol: self.volScale.after_cancel (self.updVol)
+    if vol == 0.0 or vol == 100.0:
+      self.setVol (vol)
+    else:
+      self.updVol = self.after (250, lambda: self.setVol (vol))
+
+  def onShowLog (self):
+    if (self.logShown.get ()):
+      self.logFrame = ScrolledText (self, height = 6)
+      self.logFrame.pack (side=TOP)
+      self.logFrame.insert (END, catfile (appDirFile ("log")))
+      self.logFrame.see (END)
+    else:
+      self.logFrame.pack_forget (); self.logFrame = None
+
+  def onQuit (self):
+    quitMPlayer ()
+    self.quit ()
+
+opencmdloop ()
+signal.signal (signal.SIGTERM, handleTerm)
+app = Player (); app.mainloop ()
+
+EOF
+
+# poll python (and others)
+set -- "$D"/soxlooppid "$D"/mplayerlooppid "$D"/guipid
+until ls "$@" >/dev/null 2>&1; do mysleep 0.2; done
+mkfifo "$D"/timerfifo  # Main shell can't wait(), so simple pipes won't do
+(> "$D"/timerfifo exec perl -we 'use strict; select STDOUT; $| = 1;
+  while (1) { print "\n"; my $u; select ($u, $u, $u, 0.5) }' )&
+trap 'set +e; exec <&5 5<&-; traphandler1' $TRAPPED
+exec 5<&1 <"$D"/timerfifo
+while test ! -f "$D"/stop && deadfpid=`existsfpid "$@"`; do read dummy; done
+exec <&5 5<&-; trap traphandler1 $TRAPPED
+}
+
+act () {
+  case "$1" in
+    '?'|help) echo "Commands: {p|pause}, volume (e.g. 30 1), cmd ..., {quit|q}" ;;
+    p|pause) echo pause >&5 5>&-; PAUSED=`echo $PAUSED | tr yn ny` ;;
+    vol*) echo "$1" >&5; PAUSED='n' ;;
+    cmd\ *|c\ *) echo "$1" | cut -f 2- -d' ' >&5 ;;
+    quit|q) : >"$D"/userquit; : >"$D"/stop
+      act "volume 0 1"; act "cmd quit"; return 1 ;;
+    *) echo "Unknown command $1"
+  esac
+}
+textmain () {
+  PAUSED='n'; export PAUSED
+  trap 'set +e; ": >"$D"/stop; act q || :; traphandler1' $TRAPPED
+  exec 5>"$D"/cmdfifo
+  act "cmd get_audio_bitrate"
+  if test -n "$STDIN"
+    then echo "No controls -- use kill $$ to stop"; while sleep 30; do :; done
+    else while read cmd && act "$cmd"; do :; done; act q
+  fi
+}
+
+$FRONTEND
+echo; exit 0
+
+# Testing:
+# * --setup front-end
+# * /bin/bash and /bin/dash
+# * available and unavailable -ao (e.g. jack)
+# * quit from GUI or kill master process
+# * tkinter and python front-ends

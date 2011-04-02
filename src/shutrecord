@@ -1,0 +1,661 @@
+#!/bin/sh
+set -e; set -u
+
+# Copyright (C) 2010-2011 Dan Muresan
+# Part of shut-audio-tools (http://danmbox.github.com/shut-audio-tools/)
+
+MYNAME=${0##*/}; MYVERSION="1.0"
+FILESUFFIX='rec.flac'
+D=''; c=2; r=48000; b=24
+BKEND="arecord"
+
+printusage () {
+cat <<EOF
+Usage: $MYNAME [OPTIONS]
+  or:  $MYNAME { -h | --help | -? | --version }
+
+Records a file, managing the retrying, naming and editing workflow.
+
+  -o, --output  sets the output suffix (default: $FILESUFFIX);
+                `datetitle' is used to generate the full output name
+  -D DEVICE     where to record from
+  -c CHANSPEC   what to record (see below)
+  -r RATE       sets the sampling rate (default: $r)
+  -b BPS        sets the bits / sample (default: $b)
+  --bkend BKE   sets the capture back-end (default: $BKEND)
+  --jcap        sets jack_capture as the back-end (recommended!)
+  --jrec        sets jack_record as the back-end
+  --eca         sets ecasound as the back-end
+  --cmd         specifies a command to use as back-end
+  --setup       start with settings dialog
+  --text        disables the GUI
+  --print-log   logs to stdout
+  --debug       enables debugging
+
+CHANSPEC can be "2", "left", "right", or (for Jack-related
+backends) a comma-separated list of ports:
+
+  myrecord -b 24 -o kbd.flac -c 'system:capture_1,jack_mixer:MAIN L'
+
+For ALSA recording, DEVICE should be an ALSA device, e.g. "hw:1"
+
+In desktop environments, shutrecord is a handler for folders.
+
+Report bugs at https://github.com/danmbox/shut-audio-tools/issues
+EOF
+}
+
+printversion () {
+cat <<EOF
+$MYNAME version $MYVERSION
+Copyright (C) 2010-2011 Dan Muresan
+EOF
+}
+
+DIR=`mktemp -d "/tmp/$MYNAME.XXXXXX"`
+
+existscmd () {
+  which "$1" >/dev/null 2>&1
+}
+mysleep () {
+  perl -we "select (undef, undef, undef, $1)" || sleep "$1"
+}
+setpgrpexec () {
+  exec perl -we 'use strict; setpgrp; my $p = shift; exec $p @ARGV or die $!' "$@"
+}
+# succeeds if all PIDs exist
+existspid () {
+  while test $# -gt 0; do kill -s 0 -- "$1" || return 1; shift; done
+} 2>/dev/null
+# Outputs all arguments starting with the first live PID.
+# Always succeeds.
+alivepids () {
+  while test $# -gt 0; do
+    if existspid "$1"; then echo $*; break; else shift; fi
+  done
+  :
+}
+# Expands a list of PIDs and/or PID files.
+# Each can be empty and/or prefixed by a "-" sign.
+# Always succeeds.
+expandfpids () (
+  for p; do
+    up="${p#-}"
+    if test "X${up#/}" = "X$up"
+    then test -z "$up" || printf '%s ' "$p"
+    else
+      s=""; test "X$up" = "X$p" || s="-"
+      up=`cat "$up" 2>/dev/null || :`
+      test -z "$up" || printf '%s%s ' "$s" "$up"
+    fi
+  done
+  :
+)
+# killfpids INT PID1 .. PIDn  # succeeds if any PIDs are non-null and exist
+killfpids () {
+  test -n "${2:-}" || set -- TERM "$1"
+  kill -s "$1" -- `shift; expandfpids "$@"`
+} >/dev/null 2>&1
+# killpids2 INT 1 PID1 .. PIDn  # always succeeds
+killfpids2 () {
+  case $# in
+    1) set -- TERM 1 "$1" ;;
+    2) set -- "$1" 1 "$2" ;;
+  esac
+  kill -s "$1" -- `shift 2; expandfpids "$@"` || :
+  if test 0 -lt $(shift 2; alivepids $(expandfpids "$@") | wc -w); then
+    mysleep "$2"
+    kill -s KILL -- `shift 2; expandfpids "$@"` || :
+  fi
+  :
+} >/dev/null 2>&1
+# withfpid "/tmp/recpid" exec arecord
+# withfpid "/tmp/recpid" "eval exec" "$cmd" "$@"
+# withfpid -"/tmp/recpid" setpgrpexec arecord
+withfpid () {
+  set -- "0" "$@"
+  (
+    p=`exec sh -c 'echo "$PPID"'`
+    if test "X${2#-}" = "X$2"; then echo "$p"; else echo -"$p"; fi >"${2#-}-tmp"
+    mv "${2#-}-tmp" "${2#-}"
+    e="$3"; shift 3; $e "$@"
+  ) || set -- "$?" "$2"
+  : >"${2#-}"; return "$1"
+}
+
+TRAPPED='INT TERM EXIT'
+traphandler2 () {
+  killfpids2 TERM 1 "$DIR"/recpid "$DIR"/recpid2 "$DIR"/reclooppid
+  rm -rf "$DIR"
+  trap - $TRAPPED; exit 0
+}
+traphandler1 () {
+  set +e
+  killfpids `cat "$DIR"/sig 2>/dev/null || echo TERM` \
+    "$DIR"/recpid "$DIR"/recpid2 || :
+  trap 'traphandler2' $TRAPPED
+  wait || :
+  traphandler2
+}
+trap 'traphandler1' $TRAPPED
+
+LOGOUTPUT="gui"
+SETUPSTART=""
+if test -n "$DISPLAY"; then FRONTEND=tkintermain; else FRONTEND=textmain; fi
+
+while test $# -gt 0; do case "$1" in
+  -h|--help|"-?") printusage; exit ;;
+  --version) printversion; exit ;;
+  --lash) shift; exec lash_wrap -l "$MYNAME" -- "$0" "$@" || exit 1 ;;
+  --text) FRONTEND=textmain; shift ;;
+  --setup) SETUPSTART=y; shift ;;
+  --print-log) LOGOUTPUT="-" ; shift ;;
+  --debug) set -x; shift ;;
+  -D|-c|-r|-b) eval ${1#-}="'""$2""'"; shift 2 ;;
+  --output|-o) FILESUFFIX="$2"; shift 2 ;;
+  --bkend) BKEND="$2"; shift 2 ;;
+  --cmd) BKEND="cmd"; REC="$2"; shift; break ;;
+  --eca) BKEND="ecasound"; shift ;;
+  --jrec) BKEND="jackrec"; shift ;;
+  --jcap) BKEND="jack_capture"; shift ;;
+  --) shift; break ;;
+  *) break ;;
+esac; done
+
+f=`datetitle "$FILESUFFIX"`;
+
+if test "$FRONTEND" = "tkintermain" && test "$LOGOUTPUT" = "gui"; then
+  exec >>"$DIR"/log 2>&1
+else
+  echo "Logging to stdout" >>"$DIR"/log
+fi
+
+jackspec () {
+  case "$c" in
+  left)  c=1; JRCHANS="system:capture_1" ;;
+  right) c=1; JRCHANS="system:capture_2" ;;
+  2|"")  c=2; JRCHANS="system:capture_1,system:capture_2" ;;
+  *)     JRCHANS="$c"; c=`echo "$c" | tr , '\n' | wc -l` ;;
+  esac
+  JRSPEC="-b $b"
+}
+
+bkend_setup () {
+case "$BKEND" in
+  jackrec)
+    REC=`which jackrec_danm jackrec | head -1`
+    jackspec
+    ;;
+  jack_capture)
+    jackspec
+    FILEFMT=${f#*.}; test -n "$FILEFMT" && JRSPEC="$JRSPEC --format $FILEFMT"
+    ;;
+  arecord)
+    SOXCHANSEL=''
+    if test "$c" = "left"
+      then c=2; SOXCHANSEL="remix 1"
+    elif test "$c" = "right"
+      then c=2; SOXCHANSEL="remix 2"
+    fi
+    MYSPEC="-b $b -c $c -r $r"
+    SOXSPEC=`audioflags --spec --sox $MYSPEC`
+    ASPEC=`audioflags --spec --alsa $MYSPEC`
+    ;;
+  cmd) ;;
+esac
+: ${REC:="$BKEND"}
+}
+
+# uses global vars, but expects to be backgrounded
+recloop () {
+#set -x
+trap 'set +e; : >"$DIR/reclooppid"' INT TERM EXIT
+sh -c 'echo "$PPID"' >"$DIR"/reclooppid
+
+bkend_setup
+
+while :; do
+
+read cmd
+case "$cmd" in
+  "") break ;;
+  nop) continue ;;
+  rec) ;;
+  exit) trap 'traphandler1' $TRAPPED; exit 0 ;;
+  fname*) f=`echo "$cmd" | perl -wne 'print $1 if /^fname (.*)/'`; bkend_setup; continue ;;
+  *) continue ;;
+esac
+
+rm -f "$f"
+rm -f "$DIR"/recpid "$DIR"/recpid2
+echo INT >"$DIR"/sig
+
+case "$BKEND" in
+
+  arecord)
+    rm -f "$DIR"/raw; mkfifo "$DIR"/raw
+    withfpid "$DIR/recpid" exec \
+      "$REC" -D "${D:-hw:0}" -t raw $ASPEC >"$DIR"/raw &
+    withfpid "$DIR/recpid2" exec \
+      nice sox -t raw $SOXSPEC - "$f" $SOXCHANSEL <"$DIR"/raw || :
+    ;;
+
+  jackrec) withfpid "$DIR/recpid" exec \
+    "$REC" $JRSPEC -f "$f" $JRCHANS || : ;;
+
+  jack_capture)
+    JRPORTS=`printf '%s\n' "$JRCHANS" | tr ',' '\n' |
+      while read p; do echo --port "'""$p""'"; done`
+    rm -f "$DIR"/ctl; mkfifo "$DIR"/ctl
+    echo TERM >"$DIR"/sig
+    withfpid "$DIR/recpid"  exec perl -we 'sleep' >"$DIR"/ctl &
+    withfpid "$DIR/recpid2" "eval exec" \
+      "$REC" -dc $JRSPEC $JRPORTS "$f" <"$DIR"/ctl || :
+    killfpids2 "$DIR/recpid"
+    ;;
+
+  ecasound) withfpid "$DIR/recpid" exec "$REC" -x -z:db -B:rt "$@" -o "$f" || : ;;
+
+  cmd) withfpid -"$DIR/recpid" setpgrpexec "$0" "$@" "$f" || : ;;
+
+esac
+wait || :
+
+if test -e "$f" && test `soxi -s "$f"` != "0"
+then echo "File $f was recorded"
+else echo "WARNING: recording empty or not present"
+fi
+
+done
+} <"$DIR"/cmd
+
+mkfifo "$DIR"/cmd
+recloop &
+
+tkintermain () {
+  # "$DIR"/cmd must be (1) opened for writing and (2) closed before a fork()
+  # python might never get a chance to open it (e.g. syntax on error)
+  rm -f "$DIR"/cmdconnected
+  python - "$0" "$DIR" "$f" "$FILESUFFIX" "$D" "$c" "$r" "$b" "$BKEND" "$SETUPSTART" <<"EOF" || \
+    test -e "$DIR"/cmdconnected || { echo Connecting FIFO; : >"$DIR"/cmd; }
+import base64
+from cStringIO import StringIO
+import time, os, signal
+from subprocess import *
+from Tkinter import *
+import Image, ImageTk
+import tkMessageBox, tkFileDialog
+from ScrolledText import ScrolledText
+
+SIGDICT = { "INT": signal.SIGINT, "TERM": signal.SIGTERM,
+            "KILL": signal.SIGKILL }
+
+# avoids zombies, but precludes wait()-ing
+#signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+
+def appDirFile (fname):
+  return appDir + "/" + fname
+
+appcmd     = sys.argv [1]
+appDir     = sys.argv [2]
+recfname   = sys.argv [3]
+fsuffix    = sys.argv [4]
+audioDev   = sys.argv [5]
+audioChan  = sys.argv [6]
+audioRate  = sys.argv [7]
+audioBits  = sys.argv [8]
+audioBkEnd = sys.argv [9]
+setupStart = sys.argv [10]
+
+myIconPNG_b64 = """\
+iVBORw0KGgoAAAANSUhEUgAAACAAAAAgAQAAAABbAUdZAAAACXZwQWcAAAAgAAAAIACH+pydAAAA
+QElEQVQIW2P4DwQM///XA4l/9viIdyDimCWQOGQIJB4ogghmIPGBHUj84AcSf+ThOkDmQUyGEf8Y
+GOqJIVC1AQAP+V1te9FgTwAAAABJRU5ErkJggg==
+"""
+
+myname = os.path.basename (appcmd)
+
+cmdfifo = open (appDirFile ("cmd"), "w", 1)
+cmdfifo.write ("nop\n")
+open (appDirFile ("cmdconnected"), "w").close ()
+
+def catfile (fname):
+  try:
+    with open (fname) as f:
+      return f.read ()
+  except IOError: return ""
+
+def aliveFPid (fpid, ifMissing = False):
+  try:
+    return 0 < os.path.getsize (fpid) and None == os.kill (int (catfile (fpid)), 0)
+  except OSError as e: return ifMissing
+
+def killfpid (fpid, sig):
+  pid = catfile (fpid)
+  if pid != "":
+    if sig == "": sig = "TERM"
+    try: os.kill (int (pid), SIGDICT [sig])
+    except: pass
+
+def tryrm (fname):
+  try:
+    os.remove (fname)
+  except OSError: pass
+
+def createEntry (master, name, text, expand = NO, fill = Y, width = 3):
+  Label (master, text = name).pack (side = LEFT, fill = Y)
+  entry = Entry (master, width = width)
+  entry.pack (side = LEFT, expand = expand, fill = fill)
+  entry.insert (0, text)
+  return entry
+
+def fnameText (fname): return os.path.basename (fname) if fname else "..."
+
+# only monochrome
+def setIconBitmap_b64 (root, icon_b64):
+  tmpf = appDirFile ("icon.xbm")
+  Image.open (StringIO (base64.b64decode (icon_b64))).save (tmpf)
+  root.wm_iconbitmap ("@" + tmpf)
+
+# nice, but Tk doesn't support it on most platforms
+def setIconImage_b64 (root, icon_b64):
+  tmpf = appDirFile ("icon.gif")
+  Image.open (StringIO (base64.b64decode (icon_b64))).save (tmpf)
+  image = PhotoImage (file = tmpf)
+  top = Toplevel ()
+  iconLabel = Label (top, image = image); iconLabel.image = image
+  iconLabel.pack (side = TOP)
+  root.wm_iconwindow (top); root.iconwindow = top
+  root.wm_withdraw (); root.deiconify ()
+
+# based on http://effbot.org/tkinterbook/tkinter-dialog-windows.htm
+class Dialog (Toplevel):
+
+  def __init__ (self, parent, title = None, embed = False):
+
+    if not embed: Toplevel.__init__ (self, parent)
+    else:
+      f = Frame (parent, container = True); f.pack ()
+      Toplevel.__init__ (self, parent, use = f.winfo_id ())
+    self.parent = parent
+    self.transient (parent)
+    if title: self.title (title)
+
+    self.result = None
+
+    body = Frame (self)
+    self.initial_focus = self.body (body)
+    body.pack ()
+    self.stdbuttons ()
+    self.protocol ("WM_DELETE_WINDOW", self.cancel)
+
+    self.grab_set ()
+    if not embed:
+      self.geometry ("+%d+%d" % (parent.winfo_rootx() + 10,
+                                 parent.winfo_rooty() + 10))
+
+    if not self.initial_focus: self.initial_focus = self
+    self.initial_focus.focus_set ()
+    self.wait_window (self)
+
+  # construction hooks
+
+  def body(self, master): pass
+
+  def stdbuttons (self):
+    box = Frame (self)
+    Button (box, text = "OK", command = self.ok, default = ACTIVE).pack(side = LEFT)
+    w = Button(box, text = "Cancel", command = self.cancel).pack(side = LEFT)
+    self.bind ("<Return>", self.ok); self.bind ("<Escape>", self.cancel)
+    box.pack ()
+
+  def ok (self, event=None):
+    if not self.validate (): self.initial_focus.focus_set (); return
+    self.withdraw ()
+    self.update_idletasks ()
+    self.save (); self.cancel ()
+
+  def cancel (self, event = None):
+    self.parent.focus_set ()
+    self.destroy ()
+
+  # command hooks
+
+  def validate (self): return True
+
+  def save (self): pass
+
+class SettingsDialog (Dialog):
+
+  def __init__ (self, master):
+    self.dirname = os.getcwd ()
+    Dialog.__init__ (self, master, title = "Settings")
+
+  def body (self, master):
+    self.optFrame = Frame (self)
+    self.optFrame.pack (side = TOP, expand = NO, fill = X)
+
+    self.fSuffixEntry = createEntry (self.optFrame, "File suffix", fsuffix, width = 10, expand = YES, fill = BOTH)
+    self.dirButton = Button (self.optFrame, text = fnameText (self.dirname),
+                             command = self.onDirButton)
+    Label (self.optFrame, text = "in").pack (side = LEFT, fill = Y, padx = 3)
+    self.dirButton.pack (side = LEFT, fill = Y)
+    self.srcEntry = createEntry (self.optFrame, "Source", audioDev, width = 6)
+    self.chanEntry = createEntry (self.optFrame, "Channels", audioChan, width = 15)
+    self.rateEntry = createEntry (self.optFrame, "Rate", audioRate, width = 6)
+    self.bitsEntry = createEntry (self.optFrame, "Bits", audioBits, width = 3)
+
+    bkends = ["arecord", "jack_capture", "jackrec", "eca"]
+    Label (self.optFrame, text = "Backend").pack (side = LEFT, fill = Y)
+    self.bkEndVar = StringVar (); self.bkEndVar.set (audioBkEnd)
+    bkendList = OptionMenu (self.optFrame, self.bkEndVar, *bkends)
+    bkendList.pack (side = LEFT, fill = Y)
+
+  def onDirButton (self):
+    dirname = tkFileDialog.askdirectory ()
+    if dirname:
+      self.dirname = dirname
+      self.dirButton.config (text = fnameText (dirname))
+
+  def save (self):
+    self.result = (self.dirname,
+      [appcmd,
+       "-o", self.fSuffixEntry.get (), "-D", self.srcEntry.get (),
+       "-c", self.chanEntry.get (), "-r", self.rateEntry.get (),
+       "-b", self.bitsEntry.get (), "--bkend", self.bkEndVar.get ()])
+
+class RecordCtl (Tk):
+
+  def __init__ (self):
+
+    Tk.__init__ (self)
+    self.protocol ("WM_DELETE_WINDOW", self.onQuit)
+    self.title (myname + ": " + recfname)
+    setIconBitmap_b64 (self, myIconPNG_b64)
+
+    self.cmdFrame = Frame (self)
+    self.cmdFrame.pack (side = TOP, expand = NO, fill = X)
+
+    self.fnameVar = StringVar (); self.fnameVar.set (recfname)
+    fnameEntry = Entry (self.cmdFrame, textvariable = self.fnameVar, width = 30)
+    fnameEntry.pack (side = LEFT, expand = YES, fill = BOTH)
+
+    self.fnameSetButton = Button (self.cmdFrame, text = "Change", command = self.onFnameChange, state = DISABLED)
+    self.fnameSetButton.pack (side = LEFT, fill = Y)
+    self.fnameVar.trace ("w", lambda *args: self.fnameSetButton.config (state = NORMAL))
+
+    self.recording = IntVar (); self.recording.set (False)
+    self.recWatcher = None
+    self.recButton = Checkbutton (self.cmdFrame, text = "Record", underline = 0, indicatoron = False,
+                                  variable = self.recording, command = self.onRecord)
+    #self.cmdFrame.bind ("r", lambda e: self.recButton.invoke ())
+    self.recButton.pack (side = LEFT, fill = Y)
+
+    editButton = Button (self.cmdFrame, text = "Edit", underline = 0, command = self.onEdit)
+    #self.bind_all ("e", lambda e: editButton.invoke ())
+    editButton.pack (side = LEFT, fill = Y)
+
+    self.logShown = IntVar (); self.logShown.set (False)
+    self.logFrame = None
+    self.logButton = Checkbutton (self.cmdFrame, text = "Log", indicatoron = False,
+                                  variable = self.logShown, command = self.onShowLog)
+    self.logButton.pack (side = LEFT, fill = Y)
+
+    self.optDialog = None
+    optButton = Button (self.cmdFrame, text = "Settings", command = self.onSettings)
+    optButton.pack (side = LEFT, fill = Y)
+
+    quitButton = Button (self.cmdFrame, text = "Quit", command = self.onQuit)
+    quitButton.pack (side = LEFT, fill = Y)
+
+    if setupStart == "y": self.after (0, self.onSettings)
+
+  def ensureRecStopped (self):
+    if self.recording.get ():
+      self.recording.set (False)
+      self.onRecord ()
+
+  def onAbandonRec (self):
+    self.ensureRecStopped ()
+    if (os.path.exists (recfname) and
+        not tkMessageBox.askyesno ("Save recording", "Keep file (" + recfname + ")?")):
+      tryrm (recfname)
+
+  def onFnameChange (cmdFrame):
+    global recfname
+    if recfname == self.fnameVar.get (): return
+    self.onAbandonRec ()
+    recfname = self.fnameVar.get ()
+    self.fnameSetButton.config (state = DISABLED)
+    cmdfifo.write ("fname " + recfname + "\n")
+
+  def onRecord (self):
+
+    def confirm ():
+      if tkMessageBox.askyesno ("Overwrite",
+                                "Overwrite recording (" + recfname + ")?"):
+        return True
+      else: self.recording.set (False); return False
+
+    found = os.path.exists (recfname)
+    if self.recording.get ():
+      if (not os.path.exists (recfname) or confirm ()):
+        tryrm (appDirFile ("recpid")); tryrm (appDirFile ("recpid2"))
+        cmdfifo.write ("rec\n")
+        while not os.path.exists (appDirFile ("recpid")): time.sleep (0.2)
+        self.chkRecAlive ()
+        self.ensureLogUpdated ()
+    else:
+      if self.recWatcher: self.recButton.after_cancel (self.recWatcher); self.recWatcher = None
+      killfpid (appDirFile ("recpid"), catfile (appDirFile ("sig")).strip ())
+      while aliveFPid (appDirFile ("recpid")) or aliveFPid (appDirFile ("recpid2")):
+        time.sleep (0.2)
+      self.ensureLogUpdated ()
+      self.chkEmptyRec ()
+
+  def chkEmptyRec (self):
+    if (os.path.exists (recfname) and
+        Popen (["soxi", "-s", recfname], stdout = PIPE).communicate () [0] == '0\n'):
+      if tkMessageBox.askyesno ("Empty recording",
+                                "Recording appears empty.\nDelete " + recfname + "?"):
+        tryrm (recfname)
+
+  def chkRecAlive (self):
+    if not aliveFPid (appDirFile ("recpid"), True):
+      self.recording.set (False)
+      self.ensureLogUpdated ()
+      tkMessageBox.showwarning ("Recording", "Recording process died")
+      self.chkEmptyRec ()
+    else:
+      self.recWatcher = self.recButton.after (1000, lambda: self.chkRecAlive ())
+
+  def onEdit (self):
+    Popen (["mhwaveedit", recfname])
+
+  def updateLog (self):
+    self.logFrame.delete ("1.0", END)
+    self.logFrame.insert (END, catfile (appDirFile ("log")))
+    self.logFrame.see (END)
+
+  def ensureLogUpdated (self):
+    if not self.logShown.get ():
+      self.logButton.invoke ()
+    else:
+      self.updateLog ()
+
+  def onShowLog (self):
+    if not self.logFrame:
+      self.logFrame = ScrolledText (self, height = 6)
+      self.logFrame.pack (side = TOP, expand = YES, fill = BOTH)
+    if self.logShown.get ():
+      self.updateLog ()
+    else:
+      self.logFrame.pack_forget (); self.logFrame = None
+
+  def onSettings (self):
+    optDialog = SettingsDialog (self)
+    if optDialog.result:
+      self.onAbandonRec ()
+      #signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+      cmdfifo.close ()
+
+      os.chdir (optDialog.result [0])
+      Popen (optDialog.result [1])
+      self.quit ()
+
+  def onQuit (self):
+    self.onAbandonRec ()
+    self.quit ()
+
+RecordCtl ().mainloop ()
+
+EOF
+}
+
+editfile () {
+  if existscmd mhwaveedit && test -n "$DISPLAY"; then
+    SUSP=""  # `which pasuspender 2>/dev/null`
+    "${SUSP:-command}" mhwaveedit "$1"
+  fi
+}
+
+prompt () {
+  set -- "Keep (Yes/Redo/No/Edit)?"
+  if test -t 0 && existscmd stty; then (
+    old_stty=`stty -g`
+    trap 'set +e; stty "$old_stty"; trap - $TRAPPED; exit 0' $TRAPPED
+    stty -icanon || :
+    printf '%s ' "$1" >&2; ans=`dd bs=1 count=1 2>/dev/null | tr A-Z a-z`; echo >&2
+    echo "$ans"
+  )
+  else printf '%s ' "$1" >&2; read ans; echo "${ans:-y}" | tr A-Z a-z
+  fi
+}
+
+textmain () (
+
+while :; do
+
+echo "rec" >&5
+
+until test -e "$DIR"/recpid; do mysleep 0.2; done
+sleep 2  # for terminal notices to finish
+test -s "$DIR"/recpid || { echo "Recording process died"; exit 1; }
+ans=`prompt`
+test "X$ans" = "Xn" && rm -f "$f"  # make sure the file is gone
+killfpids `cat "$DIR"/sig` "$DIR"/recpid || :
+while test -s "$DIR"/recpid || test -s "$DIR"/recpid2; do mysleep 0.2; done
+
+while :; do
+  case "$ans" in
+    y) echo; echo "Recorded $f"; exit 0 ;;
+    n) rm -f "$f"; exit 0 ;;
+    e) editfile "$f" || : ; ans=`prompt` ;;
+    *) break ;;
+  esac
+done
+
+done
+) 5>"$DIR"/cmd
+
+"$FRONTEND"

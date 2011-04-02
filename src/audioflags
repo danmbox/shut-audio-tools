@@ -1,0 +1,71 @@
+#!/bin/sh
+set -e; set -u
+
+# Copyright (C) 2010-2011 Dan Muresan
+# Part of shut-audio-tools (http://danmbox.github.com/shut-audio-tools/)
+
+MYNAME=${0##*/}; MYVERSION="1.0"
+r=48000; c=2; b=24; e=little; s="signed-integer"
+
+printusage () {
+cat <<EOF
+Usage: $MYNAME PROG FILE
+  or:  $MYNAME --spec PROG SPEC
+  or:  $MYNAME { -h | --help | -? | --version }
+
+Computes appropriate audio flags for several processing utilities.
+
+PROG must be one of
+
+  -s, --sox      selects sox
+  -a, --alsa     selects alsa (arecord / aplay)
+  -m, --mplayer  selects mplayer
+
+In the first variant, computes the flags appropriate for an audio file.
+
+In the second variant, the user specifies parameters directly in SPEC:
+
+  -C NCHAN   sets the number of channels (default: $c)    
+  -r RATE    sets the sampling rate (default: $r)
+  -b BPS     sets the bits / sample (default: $b)
+  -e ENDIAN  sets the endian-ness ("little" or "big", default: $e)
+
+Report bugs at https://github.com/danmbox/shut-audio-tools/issues
+EOF
+}
+
+printversion () {
+cat <<EOF
+$MYNAME version $MYVERSION
+Copyright (C) 2010-2011 Dan Muresan
+EOF
+}
+
+# TODO: unsigned formats
+
+case "$1" in
+  -h|--help|"-?") printusage; exit ;;
+  --version) printversion; exit ;;
+esac
+
+mode="$1"; shift
+if test "--spec" = "$mode"; then
+  mode="$1"; shift
+  while test $# -gt 0; do
+    { test ${#1} -eq 2 && test "X${1%[bcre]}" = "X-"; } || { echo Wrong args; exit 1; }
+    flag=${1#-}; eval $flag="$2"
+    shift 2
+  done
+else
+  test -f "$1" || { echo "No such file $1"; exit 1; }
+  for flag in b c r; do eval $flag=`soxi -$flag "$1"`; done
+fi
+
+case "$mode" in
+  --alsa|-a)
+    xb=''; test "$b" -eq 24 && xb=3
+    alsae="LE"; test "$e" = "big" && alsae="BE"
+    echo "-c $c -r $r -f S${b}_${xb}${alsae}" ;;
+  --sox|-s) echo "-c $c -b $b -r $r --endian $e -e $s";;
+  --mplayer|-m) echo "channels=$c:samplesize=$((b/8)):rate=$r" ;;
+esac

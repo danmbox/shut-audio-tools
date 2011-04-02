@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ShutLP
+Comment=Play audio in a loop
+Exec=shutlp --setup %F
+Categories=AudioVideo;Player;Audio
+MimeType=audio/mp3;audio/mpeg;audio/x-flac;audio/x-mp3;audio/x-mpeg;audio/x-ms-wma
+Type=Application
+X-KDE-StartupNotify=false
+NoDisplay=true
+Terminal=false

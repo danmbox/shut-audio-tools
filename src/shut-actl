@@ -1,0 +1,303 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2010-2011 Dan Muresan
+# Part of shut-audio-tools (http://danmbox.github.com/shut-audio-tools/)
+
+from math import *
+from string import *
+import re
+from cStringIO import StringIO
+import base64
+import time, os, signal
+from subprocess import *
+import tempfile
+
+from Tkinter import *
+import Image
+
+import pprint
+
+usageHelpStr = """\
+Usage: shut-actl [ { -h | --help | -? | --version } ]
+
+Displays a GUI for controlling PulseAudio, Jack and related utilities.
+
+Report bugs at https://github.com/danmbox/shut-audio-tools/issues
+"""
+
+versionHelpStr = """\
+shut-actl version 1.0
+Copyright (C) 2010-2011 Dan Muresan
+"""
+
+if sys.argv [0] in ["--version"]: print versionHelpStr; exit (0)
+elif len (sys.argv) > 1: print usageHelpStr; exit (0)
+
+#LOG10_OVER_20 = log (10.0) / 20.0
+#MINDBVOLUME = -40
+#MINFRACVOLUME = .01
+#def linear2db (frac):
+#  return 20 * log10 (frac) if frac > MINFRACVOLUME else MINDBVOLUME
+#def db2linear (db):
+#  return 0 if db == MINDBVOLUME else exp (LOG10_OVER_20 * db)
+
+SSSTR = ["sink", "source"]
+SSSTRIDX = {}
+for i in range (0, len (SSSTR)): SSSTRIDX [SSSTR [i]] = i
+
+myIconPBM_b64 = """\
+UDQKMzIgMzIKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///8A////AMAABwDAAAcAwhgnAMcYdw
+DCACcAwAAHAMAABwDH/CcAx/xnAMf8ZwDH/GcAx/xnAMAAZwDAAGcAwAAHAMAABwD///8A////AA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+"""
+
+class PAInfo:
+  def __init__ (self):
+    self.__clear__ ()
+    self.__parse_pactl_list__ ()
+    self.__parse_pacmd_dump__ ()
+    #pp = pprint.PrettyPrinter(indent=2); pp.pprint (self.SSs)
+
+  def __eq__ (self, other):
+    if (self is None) or (other is None): return False;
+    return (self.modules == other.modules) and (self.SSs == other.SSs)
+
+  def __ne__ (self, other): return not (self == other)
+
+  @staticmethod
+  def pactl_list ():
+    return Popen (["pactl", "list"], stdout = PIPE).communicate () [0]
+
+  @staticmethod
+  def pacmd_dump ():
+    return Popen (["pacmd", "dump"], stdout = PIPE).communicate () [0]
+
+  def __clear__ (self):
+    self.SSs = [ [], [] ]; self.SSNames = [ {}, {} ]; self.modules = {}
+    self.defaultSS = [ None, None ]
+
+  def SSByName (self, SorS, SSName, inDump = False):
+    s = self.SSNames [SorS] [SSName]
+    if s is None:
+      self.__clear__ ()
+      self.__parse_pactl_list__ ()
+      if not inDump: self.__parse_pacmd_dump__ ()
+      return self.SSNames [SorS] [SSName]
+    else:
+      return s
+
+  def __parse_pacmd_dump__ (self):
+    text = self.pacmd_dump ()
+    p = StringIO (text)
+
+    for line in p:
+      for SorS in [0, 1]:
+        ssstr = SSSTR [SorS];
+        m = re.match ("set-default-" + ssstr + " (.+)", line)
+        if m:
+          self.defaultSS [SorS] = self.SSByName (SorS, m.group (1))
+          continue
+        m = re.match ("set-" + ssstr + "-volume (.+) ([0-9a-fA-FxX]+)", line)
+        if m:
+          self.SSByName (SorS, m.group (1)) ["Volume"] = float (int (m.group (2), 0)) /  float (0x10000)
+          continue
+
+  def __parse_pactl_list__ (self):
+    text = self.pactl_list ()
+    p = StringIO (text)
+
+    indent = 0; entry = None; props = None
+
+    for line in p:
+      (tabs, text) = re.match ("(\t*)(.*)", line).groups ()
+      if len (text) == 0: continue
+      if len (tabs) == 0:
+        self.__addEntry__ (entry, props)
+        entry = text; props = {}
+      else:
+        if len (tabs) == 1:
+          m = re.match ("([a-zA-Z0-9-_]+): ([^:]+)", text)
+          if m: props [m.group (1)] = m.group (2)
+    self.__addEntry__ (entry, props)
+
+  def __addEntry__ (self, entry, props):
+    if not entry: return
+    m = re.match ("([A-Za-z0-9-_]+) [#]([0-9]+)", entry)
+    if not m: return
+    type = lower (m.group (1)); idx = int (m.group (2))
+    props ["Index"] = idx
+    if type in SSSTR:
+      SorS = SSSTRIDX [type]
+      props ["SinkOrSource"] = SorS
+      props ["Latency"] = 0
+      self.SSs [SorS].append (props)
+      self.SSNames [SorS] [props ["Name"]] = props
+    elif type == "module":
+      self.modules [props ["Name"]] = props
+
+def restartPulse ():
+  call (["pulseaudio", "--kill"])
+  call (["pulseaudio", "--start"])
+
+def resetLash ():
+  call (["lash_control", "exit"])
+  Popen (["lashd", "-d", ".config/lash"])
+
+# only monochrome
+def setIconBitmap_b64 (root, icon_b64):
+  tmpf = tempfile.mktemp (prefix = "audioctl-", suffix = ".xbm")
+  try:
+    Image.open (StringIO (base64.b64decode (icon_b64))).save (tmpf)
+    root.wm_iconbitmap ("@" + tmpf)
+  finally: os.remove (tmpf)
+
+class App (Tk):
+
+  def __init__ (self):
+    Tk.__init__ (self)
+    self.title ("SHUT Audio Control")
+    setIconBitmap_b64 (self, myIconPBM_b64)
+
+    self.painfo = None;
+
+    setupFrame = Frame (self, bd = 3, relief = RAISED)
+    setupFrame.pack (side = TOP, expand = NO, fill = X)
+
+    Label (setupFrame, text = "Pulse: ").pack (side = LEFT)
+    Button (setupFrame, text = "Refresh",
+            command = lambda: self.refreshPA ()).pack (side = LEFT)
+    Button (setupFrame, text = "Restart", command = restartPulse).pack (side = LEFT)
+
+    setupFrame2 = Frame (setupFrame); setupFrame2.pack (side = RIGHT)
+
+    Label (setupFrame2, text = "Jack: ").pack (side = LEFT)
+    self.jackSink = IntVar ()
+    Checkbutton (setupFrame2, text = "Sink", variable = self.jackSink,
+                 command = lambda: self.toggleJackSink ()).pack (side = LEFT)
+    self.jackSource = IntVar ()
+    Checkbutton (setupFrame2, text = "Source", variable = self.jackSource,
+                 command = lambda: self.toggleJackSource ()).pack (side = LEFT)
+    Button (setupFrame2, text = "Jack -> PA Loop", command =
+            lambda: call (["pactl", "load-module", "module-loopback",
+                           "source=jack_in"])).pack (side = LEFT)
+    Button (setupFrame2, text = "Unloop", command = self.removeLoop).pack (side = LEFT)
+    Button (setupFrame2, text = "QJackCtl", command =
+            lambda: Popen ("qjackctl")).pack (side = LEFT)
+    Button (setupFrame2, text = "Reset LASH", command = resetLash).pack (side = LEFT)
+
+    menuBar = Menu (self)
+
+    jackMenu = Menu (menuBar, tearoff = 0)
+    jackMenu.add_command (label = "Patchage", command = lambda: Popen ("patchage"))
+    jackMenu.add_command (label = "JackMixer", command = lambda: Popen ("jack_mixer"))
+    jackMenu.add_command (label = "QSynth", command = lambda: Popen ("qsynth"))
+    jackMenu.add_command (label = "JackRack", command = lambda: Popen ("jack-rack"))
+    jackMenu.add_command (label = "gtklick", command = lambda: Popen ("gtklick"))
+    menuBar.add_cascade (label = "Jack", menu = jackMenu)
+
+    paMenu = Menu (menuBar, tearoff = 0)
+    paMenu.add_command (label = "PAVUControl", command = lambda: Popen ("pavucontrol"))
+    paMenu.add_command (label = "ALSAMixer", command =
+                        lambda: Popen (["x-terminal-emulator", "-e", "alsamixer"]))
+    menuBar.add_cascade (label = "Pulse", menu = paMenu)
+
+    self.config (menu = menuBar)
+
+    self.sinkPanel = None; self.refreshTimer = None; self.refreshPA ()
+    self.bind_all ("<FocusIn>", lambda e: self.refreshPA ())
+
+  def toggleJackSink (self):
+    painfo = PAInfo ()
+    cmd = ""; mod = "module-jack-sink"
+    if not self.jackSink.get ():
+      cmd = "un"
+      try: mod = painfo.modules [mod] ["Index"]
+      except KeyError: return
+    call (["pactl", cmd + "load-module", str (mod)])
+    self.refreshPA (True)
+
+  def toggleJackSource (self):
+    painfo = PAInfo ()
+    cmd = ""; mod = "module-jack-source"
+    if not self.jackSource.get ():
+      cmd = "un"
+      try: mod = painfo.modules [mod] ["Index"]
+      except KeyError: return
+    call (["pactl", cmd + "load-module", str (mod)])
+    self.refreshPA (True)
+
+  def removeLoop (self):
+    painfo = PAInfo ()
+    try: call (["pactl", "unload-module",
+                str (painfo.modules ["module-loopback"] ["Index"])])
+    except KeyError: return
+
+  def removeRefreshTimer (self):
+    self.refreshTimer = None
+
+  def refreshPA (self, force = False, painfo = None):
+    if self.refreshTimer and not force: return
+    self.refreshTimer = self.after (750, self.removeRefreshTimer)
+
+    if painfo is None: painfo = PAInfo ()
+    if painfo == self.painfo: return
+    self.painfo = painfo
+
+    self.jackSink.set (1 if "module-jack-sink" in painfo.modules else 0)
+    self.jackSource.set (1 if "module-jack-source" in painfo.modules else 0)
+    if self.sinkPanel: self.sinkPanel.pack_forget ()
+    self.sinkPanel = SinkPanel (self, painfo = painfo)
+    self.sinkPanel.pack (side = TOP, expand = YES, fill = BOTH)
+
+class SSCtl:
+  def __init__ (self, SorS, SSName, suspended, volume):
+    self.SorS = SorS
+    self.SSName = SSName
+    self.ssstr = SSSTR [SorS]
+    self.suspended = suspended
+    self.volume = volume
+
+  def onToggleSuspend (self):
+    if self.suspended.get () == "Suspended":
+      self.suspended.set ("Active"); susp = 0
+    else:
+      self.suspended.set ("Suspended"); susp = 1
+      print (self.ssstr + " " + self.SSName)
+    call (["pactl", "suspend-" + self.ssstr, self.SSName, str (susp)])
+
+  def onSetVolume (self, vol):
+    call (["pactl", "set-" + self.ssstr + "-volume", self.SSName,
+           str (int (0x10000 / 100.0 * float (vol)))])
+
+class SinkPanel (Frame):
+
+  def __init__ (self, master, painfo = None):
+    Frame.__init__ (self, master, bd = 3, relief = RAISED)
+    self.columnconfigure (2, weight = 1)
+
+    if not painfo: painfo = PAInfo ()
+
+    row = -1
+    for ssstr in ["sink", "source"]:
+      SorS = SSSTRIDX [ssstr]
+      for i in range (len (painfo.SSs [SorS])):
+        row = row + 1
+        s = painfo.SSs [SorS] [i]
+        suspended = StringVar ()
+        volume = DoubleVar (); volume.set (s ["Volume"] * 100.0)
+        ctl = SSCtl (SorS, s ["Name"], suspended, volume)
+
+        Label (self, text = s ["Description"]).grid (row = row, column = 0, sticky = "sw")
+        Label (self, text = {"source": "IN", "sink": "OUT"} [ssstr]).grid (row = row, column = 1, sticky = "sw", padx = 5)
+        suspended.set ("Active" if (s ["State"] != "SUSPENDED") else "Suspended")
+        button = Checkbutton (self, textvar = suspended, command =
+                              ctl.onToggleSuspend, indicatoron = False)
+        button.grid (row = row, column = 2, sticky = "sw")
+
+        scale = Scale (self, variable = volume, command = ctl.onSetVolume,
+                       resolution = 0.1, from_ = 0, to = 100, length = 300,
+                       orient = HORIZONTAL)
+        scale.grid (row = row, column = 3, sticky = "esw")
+        Label (self, text = "%").grid (row = row, column = 3, sticky = "sw")
+
+App ().mainloop ()

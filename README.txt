@@ -7,16 +7,16 @@ Author: Dan A. Muresan (danmbox at gmail dot com)
 
 1. DESCRIPTION:
 
-Shut Audio Tools are lightweight tools for playing, recording and
-editing music on Linux. They support Jack, Pulse Audio and ALSA.
+Shut Audio Tools are lightweight tools for playing, practicing and
+recording music on Linux. They support Jack, Pulse Audio and ALSA.
 They run in a text terminal, or in GUI mode. Currently included are:
 
 * ShutLP, a gapless loop player with a count-in metronome. It helps
 you practice along with a recorded loop.
 
 * Shut Record, a recording front end with workflow management for
-naming / recording / redoing. Set up a background loop with ShutLP,
-record with Shut Record, view with mhwaveedit and retry until happy.
+naming / recording / redoing. Set up a background loop with shutlp,
+record with shutrecord, view with mhwaveedit and retry until happy.
 
 * spliceaudio, a simple audio splicing tool using sox
 
@@ -26,7 +26,9 @@ Jack and their interactions
 
 2. DEPENDENCIES:
 
-* Mandatory: POSIX shell, Perl; Jack, Pulse Audio or ALSA; sox, mplayer
+* mandatory: POSIX shell, Perl; Jack, Pulse Audio or ALSA; sox, mplayer
+
+* build dependencies: GNU make, help2man
 
 * recommended: Python, TkInter and Python-Imaging for GUIs
 
@@ -56,7 +58,8 @@ In a desktop environment (Gnome, KDE, LXDE etc.), ShutLP is a handler
 for audio files, and Shut Record is a handler for folders -- so you
 can run them via the "Open With..." dialog (or equivalents).
 
-See the man pages for command-line arguments.
+Or just start the tools from the command line. See the man pages for
+command-line arguments.
 
 
 5. COPYRIGHT:

@@ -1,0 +1,11 @@
+[Desktop Entry]
+X-Desktop-File-Install-Version=0.11
+Name=Record here (shutrecord)
+Comment=Recording workflow application
+Exec=sh -c 'cd "$1" && exec shutrecord' shutrecord %F
+Categories=AudioVideo;Audio;
+MimeType=application/x-directory;inode/directory;x-directory/normal
+Type=Application
+X-KDE-StartupNotify=false
+NoDisplay=true
+Terminal=false

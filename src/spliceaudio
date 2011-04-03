@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+test -n "$BASH_VERSION" && set -o posix
 set -e; set -u
 
 # Copyright (C) 2010-2011 Dan Muresan
@@ -11,19 +12,24 @@ MYNAME=${0##*/}; MYVERSION="1.0"
 
 printusage () {
 cat <<EOF
-Usage: $MYNAME [OPTIONS] OUT [-v VOL1] FILE1 POS1
-         [-v VOL2] FILE2 POS2 [EXC LEE] -- [SOXFX...]
+Usage: $MYNAME [OPTIONS] OUT [-v VOL1] FILE1
+         [POS1 [-v VOL2] [FILE2] POS2 EXC LEE] -- [SOXFX...]
   or:  $MYNAME { -h | --help | -? | --version }
 
 Joins (splices) audio files using sox.
 
   -t | -q | -c  sets the sox splice envelope (-c replacing sox's -h)
+  --loop        trim output to generate a loop (see below)
   -v VOL        sets the gain (linear) for each file
 
 Positions, as well as the excess EXC and leeway LEE, can be specified
 (sox-style) as mm:ss.frac or <NSAMPLES>s. If prefixed by +/-, POS2 is
-relative to POS1. POS1 defaults to the end of FILE1, POS2 to (2 * EXC
-+ LEE).
+relative to POS1. POS2 _must_ be at least 2 * EXC + LEE (see below).
+
+Arguments after FILE1 are "sequentially optional". Those present must
+be specified in the given order, possibly as empty strings (""). POS1
+defaults to the end of FILE1, POS2 to (2 * EXC + LEE). If POS2 is
+relative, FILE2 can be omitted. FILE2 defaults to FILE1.
 
 The result consists (up to a leeway of LEE) of
 
@@ -31,8 +37,14 @@ The result consists (up to a leeway of LEE) of
   + (2 * EXC)         of cross-fade between FILE1 and FILE2
   + (LEN2 - POS2)     of FILE2 (i.e. everything after POS2)
 
-If FILE2 is "", it defaults to FILE1. SOXFX arguments specify extra sox
-effects (performed after the splice). See sox(1).
+SOXFX arguments specify extra sox effects (performed after the
+splice). See sox(1).
+
+In the --loop variant, use a POS2 < POS1 (e.g. a negative duration,
+-DUR). The segment (POS2 .. POS1) is spliced onto itself, and the
+first half of the result is retained. This should be a perfect loop of
+duration (POS1 - POS2), with the end smoothly transitioning back to
+the beginning.
 
 Report bugs at https://github.com/danmbox/shut-audio-tools/issues
 EOF
@@ -60,9 +72,13 @@ insamples () {
   test "X${1%s}" != "X$1"
 }
 
-ENVEL="-t"
+# alias expansion in bash scripts requires set -o posix
+alias moreopts='{ test $# -gt 0 && test "X$1" != "X--"; }'
+
+ENVEL="-t"; LOOPSPLICE=""; LEE0="0.005"
 while test $# -gt 0; do case "$1" in
   -h|--help|"-?") printusage; exit ;;
+  --loop) LOOPSPLICE=y; LEE0=0; shift ;;
   --version) printversion; exit ;;
   -t|-q) ENVEL="$1"; shift ;;
   -c) ENVEL="$-h"; shift ;;
@@ -72,24 +88,33 @@ esac; done
 out="$1"; shift; test -e "$out" && { echo "Not overwriting $out"; exit 1; }
 test "X$1" = "X-v" && { v1="$1 $2"; shift 2; }
 f1="$1"; shift; rate=`soxi -r "$f1"`; opt=`opts "$f1"`
-p1="$1"; shift; test -z "$p1" && p1=`soxi -s "$f1"`s
-test "X$1" = "X-v" && { v2="$1 $2"; shift 2; }
-f2="$1"; shift; test -z "$f2" && f2="$f1"; opt2=`opts "$f2"`
-test "X$opt" = "X$opt2" || { echo "Incompatible files"; exit 1; }
-exc="${2:-0.005}"; insamples "$exc" || exc=`t2samples "$exc"`s
-lee="${3:-0.005}"; insamples "$lee" || lee=`t2samples "$lee"`s
-p2="${1:-}"; test -z "$p2" && p2=`expr "${lee%s}" '+' 2 '*' "${exc%s}"`s
-{ test $# -gt 3 && shift 4; } || while test $# -gt 0; do shift; done
+moreopts || set -- "" "$@"; p1="$1"; test -n "$p1" || p1=`soxi -s "$f1"`s; shift
+insamples "$p1" || p1=`t2samples "$p1"`s
+moreopts || set -- "" "$@"
+test "X$1" != "X-v" || { v2="$1 $2"; shift 2; }
+moreopts && test "X${1#[+-]}" = "X$1"|| set -- "" "$@"
+f2="${1:-$f1}"; shift
+opt2=`opts "$f2"`; test "X$opt" = "X$opt2" || { echo "Incompatible files"; exit 1; }
+moreopts || set -- "" "$@"; p2="$1"; shift
+moreopts || set -- "" "$@"; exc="${1:-0.005}"; shift
+moreopts || set -- "" "$@"; lee="${1:-$LEE0}"; shift
+test $# -eq 0 || { test "X$1" = "X--" && shift; } ||
+  { printusage; exit 1; }
 
+insamples "$exc" || exc=`t2samples "$exc"`s
+insamples "$lee" || lee=`t2samples "$lee"`s
+test -n "$p2" || p2=`expr "${lee%s}" '+' 2 '*' "${exc%s}"`s
 p2u="${p2#[+-]}"
 p2sign=""; test "X$p2u" = "X$p2" ||
   p2sign=`echo "$p2" | dd bs=1 count=1 2>/dev/null`
-insamples "$p1" || p1=`t2samples "$p1"`s
 insamples "$p2u" || p2u=`t2samples "$p2u"`s
 p2="$p2u"; test -z "$p2sign" ||
   p2=`expr "${p1%s}" "$p2sign" "${p2u%s}"`s
-o2=`expr "${p2%s}" '-' 2 '*' "${exc%s}" '-' "${lee%s}"`s
+o2=`expr "${p2%s}" '-' 2 '*' "${exc%s}" '-' "${lee%s}"`s || :
+test -n "$LOOPSPLICE" &&
+  set -- trim "$p2" `expr "${p1%s}" '-' "${p2%s}"`s "$@"
 
+set +o posix
 sox $opt <(sox ${v1-} "$f1" $opt - trim 0 "$p1") \
     $opt <(sox ${v2-} "$f2" $opt - trim "$o2")   \
     "$out" splice "$ENVEL" "$p1,$exc,$lee" "$@"

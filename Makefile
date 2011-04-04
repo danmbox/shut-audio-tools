@@ -14,14 +14,16 @@ INSTALL_DATA    = $(INSTALL) -m 644
 
 ###
 
-SCRIPTS := $(filter-out %~ %.bak, $(wildcard src/*))
+TMP_WILD := $(TMP_WILD) *~ *.bak cscope.*
+TMP_PAT := $(subst *,%,$(TMP_WILD))
+
+SCRIPTS := $(filter-out $(TMP_PAT), $(wildcard src/*))
 MANS := $(addprefix man/, $(notdir $(SCRIPTS:=.1)))
 DESKTOPS := $(wildcard data/*.desktop)
 
-CLEAN_PAT := $(CLEAN_PAT) *~ *.bak cscope.*
 CLEAN_FILES := $(MANS)
 
-.PHONY: clean all
+.PHONY: clean all srcdist
 
 man/%.1: src/%
 	help2man -N -o $@ $<
@@ -38,5 +40,14 @@ install: all installdirs
 	$(INSTALL_DATA) $(DESKTOPS) $(DESTDIR)$(datadir)/applications
 
 clean:
-	for pat in $(CLEAN_PAT); do find . -iname $$pat -exec rm {} \; ; done
+	for pat in $(TMP_WILD); do find . -iname $$pat -exec rm {} \; ; done
 	rm -rf $(CLEAN_FILES)
+
+srcdist: clean
+	find . '(' -name '.git' -prune ')' -o -type f -print | \
+	  tar -cvzf /tmp/shut-audio-tools.tar.gz -T -
+
+showvars:
+	@echo TMP_PAT: $(TMP_PAT)
+	@echo SCRIPTS: $(SCRIPTS)
+	@echo MANS   : $(MANS)

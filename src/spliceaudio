@@ -19,15 +19,15 @@ Usage: $MYNAME [OPTIONS] OUT [-v VOL1] FILE1
 Joins (splices) audio files using sox.
 
   -t | -q | -c  sets the sox splice envelope (-c replacing sox's -h)
-  --loop        trim output to generate a loop (see below)
   -v VOL        sets the gain (linear) for each file
+  --loop        trim output to generate a loop (see below)
 
-Positions, as well as the excess EXC and leeway LEE, can be specified
-(sox-style) as mm:ss.frac or <NSAMPLES>s. If prefixed by +/-, POS2 is
+Positions, as well as the excess EXC and leeway LEE, are specified
+(sox-style) as [mm:]ss.frac or <NSAMPLES>s. If prefixed by +/-, POS2 is
 relative to POS1. POS2 _must_ be at least 2 * EXC + LEE (see below).
 
 Arguments after FILE1 are "sequentially optional". Those present must
-be specified in the given order, possibly as empty strings (""). POS1
+appear in the given order, possibly as empty strings (""). POS1
 defaults to the end of FILE1, POS2 to (2 * EXC + LEE). If POS2 is
 relative, FILE2 can be omitted. FILE2 defaults to FILE1.
 
@@ -37,14 +37,24 @@ The result consists (up to a leeway of LEE) of
   + (2 * EXC)         of cross-fade between FILE1 and FILE2
   + (LEN2 - POS2)     of FILE2 (i.e. everything after POS2)
 
-SOXFX arguments specify extra sox effects (performed after the
-splice). See sox(1).
+SOXFX effects are performed after the splice. See sox(1).
 
-In the --loop variant, use a POS2 < POS1 (e.g. a negative duration,
--DUR). The segment (POS2 .. POS1) is spliced onto itself, and the
-first half of the result is retained. This should be a perfect loop of
-duration (POS1 - POS2), with the end smoothly transitioning back to
-the beginning.
+For --loop, use a POS2 < POS1 (e.g. a negative duration, -DUR). The
+segment (POS2 .. POS1) is spliced onto itself, and the first half of
+the result is retained. This should be a perfect loop of duration
+(POS1 - POS2), with the end smoothly transitioning back to the start.
+
+Examples:
+
+  # creates 2 loops, (0 .. 3.75) and (3.75 .. 7.5):
+
+  splice-audio --loop loop1.flac guitar.flac 3.75
+
+  splice-audio --loop loop2.flac guitar.flac 7.5 '-3.75'
+
+  # set EXC to 30 msec
+
+  splice-audio --loop loop1.flac guitar.flac 3.75 '' '' 0.03
 
 Report bugs at https://github.com/danmbox/shut-audio-tools/issues
 EOF

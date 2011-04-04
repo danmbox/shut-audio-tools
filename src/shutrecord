@@ -17,7 +17,7 @@ Usage: $MYNAME [OPTIONS]
 Records a file, managing the retrying, naming and editing workflow.
 
   -o, --output  sets the output suffix (default: $FILESUFFIX);
-                `datetitle' is used to generate the full output name
+                \`datetitle' is used to generate the full output name
   -D DEVICE     where to record from
   -c CHANSPEC   what to record (see below)
   -r RATE       sets the sampling rate (default: $r)

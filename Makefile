@@ -15,7 +15,10 @@ INSTALL_DATA    = $(INSTALL) -m 644
 ###
 
 TMP_WILD := $(TMP_WILD) *~ *.bak cscope.*
-TMP_PAT := $(subst *,%,$(TMP_WILD))
+TMP_PAT  := $(subst *,%,$(TMP_WILD))
+RELEASE  := $(shell cat release.txt)
+MYNAME   := shut-audio-tools
+DISTNAME  := $(MYNAME)-$(RELEASE)
 
 SCRIPTS := $(filter-out $(TMP_PAT), $(wildcard src/*))
 MANS := $(addprefix man/, $(notdir $(SCRIPTS:=.1)))
@@ -23,16 +26,12 @@ DESKTOPS := $(wildcard data/*.desktop)
 
 CLEAN_FILES := $(MANS)
 
-.PHONY: clean all srcdist
-
-man/%.1: src/%
-	help2man -N -o $@ $<
+.PHONY: clean all srcdist xdebian
 
 all: $(MANS)
 
-installdirs: mkinstalldirs
-	./mkinstalldirs $(DESTDIR)$(bindir) $(DESTDIR)$(datadir) \
-	$(DESTDIR)$(mandir) $(DESTDIR)$(man1dir) $(DESTDIR)$(datadir)/applications
+man/%.1: src/% man
+	help2man -N -o $@ $<
 
 install: all installdirs
 	$(INSTALL_PROGRAM) $(SCRIPTS) $(DESTDIR)$(bindir)
@@ -44,10 +43,26 @@ clean:
 	rm -rf $(CLEAN_FILES)
 
 srcdist: clean
-	find . '(' -name '.git' -prune ')' -o -type f -print | \
-	  tar -cvzf /tmp/shut-audio-tools.tar.gz -T -
+	TD=`mktemp -d /tmp/mkdist.XXXXXX`; \
+	cp -a . $$TD/$(DISTNAME); cd $$TD; \
+	find $(DISTNAME) '(' -name '.git' -prune ')' -o -type f -print | \
+	  tar -cvzf /tmp/$(DISTNAME).tar.gz -T -; \
+	test $$TD && $(RM) -r $$TD/*; rmdir $$TD
+
+xdebian: srcdist
+	cd ..; mv /tmp/$(DISTNAME).tar.gz .; tar xzf $(DISTNAME).tar.gz; \
+	mv $(DISTNAME).tar.gz $(MYNAME)_$(RELEASE).orig.tar.gz; \
+	cd $(DISTNAME); make clean; $(RM) -r debian; mv mydebian debian; \
+	printf "%s " "Debian directory in "; pwd
 
 showvars:
 	@echo TMP_PAT: $(TMP_PAT)
 	@echo SCRIPTS: $(SCRIPTS)
 	@echo MANS   : $(MANS)
+
+man:
+	mkdir -p man
+
+installdirs: mkinstalldirs
+	./mkinstalldirs $(DESTDIR)$(bindir) $(DESTDIR)$(datadir) \
+	$(DESTDIR)$(mandir) $(DESTDIR)$(man1dir) $(DESTDIR)$(datadir)/applications

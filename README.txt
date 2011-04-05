@@ -48,6 +48,12 @@ make install
 make prefix=/opt/shutat install
 PATH="$PATH:"/opt/shutat
 
+# Debian / Ubuntu:
+make xdebian
+cd ../shut-audio-tools-*/
+debuild -i -b -us -uc
+dpkg -i ../shut-audio-tools*.deb
+
 # for packagers:
 make DESTDIR=build/ prefix=/usr install
 cd build; tar cvzf ../shut-audio-tools.tar.gz .

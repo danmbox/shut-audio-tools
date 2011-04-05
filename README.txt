@@ -12,16 +12,18 @@ recording music on Linux. They support Jack, Pulse Audio and ALSA.
 They run in a text terminal, or in GUI mode. Currently included are:
 
 * ShutLP, a gapless loop player with a count-in metronome. It helps
-you practice along with a recorded loop.
+you practice along with a recorded loop. For session management, it's
+LASH-aware.
 
 * Shut Record, a recording front end with workflow management for
-naming / recording / redoing. Set up a background loop with shutlp,
-record with shutrecord, view with mhwaveedit and retry until happy.
+naming / recording / redoing.  It can use jack_capture, arecord and
+other back-ends. Set up a background loop with shutlp, record with
+shutrecord, view with mhwaveedit and retry until happy.
+
+* spliceaudio, an audio splicing / loop-creation utility using sox
 
 * Shut Audio Control (shut-actl), a GUI for managing Pulse Audio,
 Jack and their interactions
-
-* spliceaudio, an audio splicing / loop-creation utility using sox
 
 
 2. DEPENDENCIES:

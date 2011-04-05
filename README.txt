@@ -21,13 +21,12 @@ record with shutrecord, view with mhwaveedit and retry until happy.
 * Shut Audio Control (shut-actl), a GUI for managing Pulse Audio,
 Jack and their interactions
 
-* spliceaudio, a simple audio splicing and loop-creation utility using
-sox
+* spliceaudio, an audio splicing / loop-creation utility using sox
 
 
 2. DEPENDENCIES:
 
-* mandatory: perl, python; sox, mplayer; Jack, Pulse Audio or ALSA
+* mandatory: sox, mplayer; perl, python; Jack, Pulse Audio or ALSA
 
 * build dependencies: GNU make, perl, python, help2man
 

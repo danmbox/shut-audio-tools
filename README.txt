@@ -27,14 +27,15 @@ sox
 
 2. DEPENDENCIES:
 
-* mandatory: POSIX shell, Perl; Jack, Pulse Audio or ALSA; sox, mplayer
+* mandatory: perl, python; sox, mplayer; Jack, Pulse Audio or ALSA
 
-* build dependencies: GNU make, help2man
+* build dependencies: GNU make, perl, python, help2man
 
-* recommended: Python, TkInter and Python-Imaging (for GUIs)
+* recommended: TkInter and Python-Imaging (for GUIs)
+
+* recommended: jack_capture (for recording)
 
 * recommended: an audio editor such as mhwaveedit
-
 
 3. INSTALLING:
 

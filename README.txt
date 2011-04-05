@@ -1,7 +1,7 @@
 SHUT AUDIO TOOLS
 Lightweight tools for playing, practicing and recording music on Linux
 
-Home page: https://github.com/danmbox/shut-audio-tools/
+Home page: http://danmbox.github.com/shut-audio-tools/
 Author: Dan A. Muresan (danmbox at gmail dot com)
 
 

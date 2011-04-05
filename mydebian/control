@@ -4,7 +4,7 @@ Priority: extra
 Maintainer: Dan Muresan <danmbox@gmail.com>
 Build-Depends: debhelper (>= 7.0.50~), perl, python, help2man
 Standards-Version: 3.8.3
-Homepage: https://github.com/danmbox/shut-audio-tools/
+Homepage: http://danmbox.github.com/shut-audio-tools/
 
 Package: shut-audio-tools
 Architecture: all

@@ -646,4 +646,4 @@ echo; exit 0
 # * /bin/bash and /bin/dash
 # * available and unavailable -ao (e.g. jack)
 # * quit from GUI or kill master process
-# * tkinter and python front-ends
+# * tkinter and text front-ends

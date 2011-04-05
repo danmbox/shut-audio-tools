@@ -39,7 +39,7 @@ install: all installdirs
 	$(INSTALL_DATA) $(DESKTOPS) $(DESTDIR)$(datadir)/applications
 
 clean:
-	for pat in $(TMP_WILD); do find . -iname $$pat -exec rm {} \; ; done
+	set -f; for pat in $(TMP_WILD); do find . -iname $$pat -exec rm {} \; ; done; \
 	rm -rf $(CLEAN_FILES)
 
 srcdist: clean

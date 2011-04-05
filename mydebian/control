@@ -2,13 +2,13 @@ Source: shut-audio-tools
 Section: sound
 Priority: extra
 Maintainer: Dan Muresan <danmbox@gmail.com>
-Build-Depends: debhelper (>= 7.0.50~), python, perl, help2man
+Build-Depends: debhelper (>= 7.0.50~), perl, python, help2man
 Standards-Version: 3.8.3
 Homepage: https://github.com/danmbox/shut-audio-tools/
 
 Package: shut-audio-tools
 Architecture: all
-Depends: ${misc:Depends}, sox, mplayer, python, perl, python-imaging-tk
+Depends: ${misc:Depends}, sox, mplayer, perl, python, python-imaging-tk
 Recommends: mhwaveedit
 Description: Lightweight music playing, practicing and recording tools
  Shut Audio Tools are lightweight tools for playing, practicing and

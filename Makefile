@@ -53,6 +53,7 @@ xdebian: srcdist
 	cd ..; mv /tmp/$(DISTNAME).tar.gz .; tar xzf $(DISTNAME).tar.gz; \
 	mv $(DISTNAME).tar.gz $(MYNAME)_$(RELEASE).orig.tar.gz; \
 	cd $(DISTNAME); make clean; $(RM) -r debian; mv mydebian debian; \
+	dch -p -v $(RELEASE)'-1~'`date '+%Y%m%d'`'~local1' "Local build."; \
 	printf "%s " "Debian directory in "; pwd
 
 showvars:

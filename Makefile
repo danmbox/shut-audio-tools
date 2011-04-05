@@ -30,8 +30,8 @@ CLEAN_FILES := $(MANS)
 
 all: $(MANS)
 
-man/%.1: src/% man
-	help2man -N -o $@ $<
+man/%.1: src/% $(filter-out $(wildcard man), man)
+	help2man -N -o $@ $< || { $< --help || :; $< --version || :; false; }
 
 install: all installdirs
 	$(INSTALL_PROGRAM) $(SCRIPTS) $(DESTDIR)$(bindir)
@@ -61,7 +61,7 @@ showvars:
 	@echo MANS   : $(MANS)
 
 man:
-	mkdir -p man
+	mkdir man
 
 installdirs: mkinstalldirs
 	./mkinstalldirs $(DESTDIR)$(bindir) $(DESTDIR)$(datadir) \

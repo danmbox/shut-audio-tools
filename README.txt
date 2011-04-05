@@ -31,7 +31,7 @@ sox
 
 * build dependencies: GNU make, help2man
 
-* recommended: Python, TkInter and Python-Imaging for GUIs
+* recommended: Python, TkInter and Python-Imaging (for GUIs)
 
 * recommended: an audio editor such as mhwaveedit
 

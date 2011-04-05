@@ -3,20 +3,6 @@
 # Copyright (C) 2010-2011 Dan Muresan
 # Part of shut-audio-tools (http://danmbox.github.com/shut-audio-tools/)
 
-from math import *
-from string import *
-import re
-from cStringIO import StringIO
-import base64
-import time, os, signal
-from subprocess import *
-import tempfile
-
-from Tkinter import *
-import Image
-
-import pprint
-
 usageHelpStr = """\
 Usage: shut-actl [ { -h | --help | -? | --version } ]
 
@@ -30,8 +16,25 @@ shut-actl version 1.0
 Copyright (C) 2010-2011 Dan Muresan
 """
 
-if sys.argv [0] in ["--version"]: print versionHelpStr; exit (0)
-elif len (sys.argv) > 1: print usageHelpStr; exit (0)
+import sys
+
+if len (sys.argv) > 1:
+  if sys.argv [1] in ["--version"]: sys.stdout.write (versionHelpStr); exit (0)
+  else: sys.stdout.write (usageHelpStr); exit (0)
+
+from math import *
+from string import *
+import re
+from cStringIO import StringIO
+import base64
+import time, os, signal
+from subprocess import *
+import tempfile
+
+from Tkinter import *
+import Image
+
+import pprint
 
 #LOG10_OVER_20 = log (10.0) / 20.0
 #MINDBVOLUME = -40

@@ -1,0 +1,6 @@
+?package(shut-audio-tools):needs="X11" section="Applications/Sound" \
+  title="ShutLP" command="/usr/bin/shutlp --setup"
+?package(shut-audio-tools):needs="X11" section="Applications/Sound" \
+  title="Shut Record" command="/usr/bin/shutrecord"
+?package(shut-audio-tools):needs="X11" section="Applications/Sound" \
+  title="Shut Audioctl" command="/usr/bin/shut-actl"

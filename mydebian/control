@@ -1,0 +1,27 @@
+Source: shut-audio-tools
+Section: sound
+Priority: extra
+Maintainer: Dan Muresan <danmbox@gmail.com>
+Build-Depends: debhelper (>= 7.0.50~), python, perl, help2man
+Standards-Version: 3.8.3
+Homepage: https://github.com/danmbox/shut-audio-tools/
+
+Package: shut-audio-tools
+Architecture: all
+Depends: ${misc:Depends}, sox, mplayer, python, perl, python-imaging-tk
+Recommends: mhwaveedit
+Description: Lightweight music playing, practicing and recording tools
+ Shut Audio Tools are lightweight tools for playing, practicing and
+ recording music, with Jack, Pulse Audio and ALSA support.
+ .
+ ShutLP is a gapless loop player with a count-in metronome. It helps
+ you practice along with a recorded loop.
+ .
+ Shut Record is a recording front end with workflow management for
+ naming / recording / redoing. Set up a background loop with shutlp,
+ record with shutrecord, view with mhwaveedit and retry until happy.
+ .
+ Shut Audio Control (shut-actl) is a GUI for managing Pulse Audio,
+ Jack and their interactions
+ .
+ spliceaudio is an audio splicing and loop-creation utility using sox

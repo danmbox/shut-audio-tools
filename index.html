@@ -51,7 +51,7 @@
     </div>
 
     <p>Shut Audio Tools are lightweight tools for playing, recording and
-editing music on Linux. They support Jack, Pulse Audio and ALSA.
+editing music. They support Jack, Pulse Audio and ALSA.
 They run in a text terminal, or in GUI mode. Currently included are:</p>
 
 <ol>
@@ -59,19 +59,21 @@ They run in a text terminal, or in GUI mode. Currently included are:</p>
 
 <li>Shut Record, a recording front end with workflow management for naming / recording / redoing. Set up a background loop with ShutLP, record with Shut Record, view with mhwaveedit and retry until happy.</li>
 
-<li>spliceaudio, a simple audio splicing tool using sox</li>
+<li>spliceaudio, an audio splicing and loop-creation utility using sox</li>
 
 <li>Shut Audio Control (shut-actl), a GUI for managing Pulse Audio, Jack and their interactions</li>
 </ol>
 
 <h2>Dependencies</h2>
 <ul><li>mandatory: POSIX shell, Perl; Jack, Pulse Audio or ALSA; sox, mplayer</li>
-<li>recommended: Python, TkInter and Python-Imaging for GUIs</li>
+<li>recommended: Python, TkInter and Python-Imaging (for GUIs)</li>
 <li>recommended: an audio editor such as mhwaveedit</li>
 </ul>
 
 <h2>Install</h2>
-<p>Please see README.txt in the distribution.</p>
+<p>On Debian / Ubuntu, enable <a href="https://launchpad.net/~danmbox/+archive/ppa">this PPA</a> and run</p>
+<pre>apt-get update; apt-get install shut-audio-tools</pre>
+<p>Please see README.txt in the distribution for more options.</p>
 <h2>License</h2>
 <p><a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a></p>
 <h2>Authors</h2>

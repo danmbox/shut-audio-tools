@@ -141,7 +141,7 @@ trap 'traphandler1' $TRAPPED
 
 LOGOUTPUT="gui"
 SETUPSTART=""
-if test -n "$DISPLAY"; then FRONTEND=tkintermain; else FRONTEND=textmain; fi
+if test -n "${DISPLAY:-}"; then FRONTEND=tkintermain; else FRONTEND=textmain; fi
 
 while test $# -gt 0; do case "$1" in
   -h|--help|"-?") printusage; exit ;;

@@ -260,7 +260,7 @@ class SetupDialog (Dialog):
       self.result += ["--bpm", bpm, "--bcnt", bcnt]
     self.result += [self.fname, "--", "-ao"]
     bkend = self.bkendVar.get ()
-    if bkend == "jack": bkend += ":name=shutlp"
+    if bkend == "jack": bkend += ":name=shutlp-" + str (os.getpid ())
     aoOpts = self.aoEntry.get ()
     if aoOpts: bkend += ":" + aoOpts
     self.result += [bkend]
@@ -272,7 +272,8 @@ class SetupApp (Tk):
 
   def doDialog (self):
     d = SetupDialog (self, sys.argv [2])
-    if d.result: os.execlp (sys.argv [1], sys.argv [1], *d.result)
+    if d.result:
+      os.execlp (sys.argv [1], sys.argv [1], *d.result)
     self.quit ()
 
 SetupApp ().mainloop ()

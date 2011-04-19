@@ -7,7 +7,7 @@ set -e; set -u
 MYNAME=${0##*/}; MYVERSION="1.0"
 FILESUFFIX='rec.flac'
 D=''; c=2; r=48000; b=24
-BKEND="arecord"
+BKEND="arecord"; test -n "`pidof jackd`" && BKEND="jack_capture"
 
 printusage () {
 cat <<EOF
@@ -22,7 +22,7 @@ Records a file, managing the retrying, naming and editing workflow.
   -c CHANSPEC   what to record (see below)
   -r RATE       sets the sampling rate (default: $r)
   -b BPS        sets the bits / sample (default: $b)
-  --bkend BKE   sets the capture back-end (default: $BKEND)
+  --bkend BKE   sets the capture back-end (default: detected)
   --jcap        sets jack_capture as the back-end (recommended!)
   --jrec        sets jack_record as the back-end
   --eca         sets ecasound as the back-end
@@ -164,7 +164,7 @@ esac; done
 
 f=`datetitle "$FILESUFFIX"`;
 
-if test "$FRONTEND" = "tkintermain" && test "$LOGOUTPUT" = "gui"; then
+if test "$FRONTEND" = "tkintermain" && test "X$LOGOUTPUT" = "Xgui"; then
   exec >>"$DIR"/log 2>&1
 else
   echo "Logging to stdout" >>"$DIR"/log
@@ -445,8 +445,8 @@ class SettingsDialog (Dialog):
     self.rateEntry = createEntry (self.optFrame, "Rate", audioRate, width = 6)
     self.bitsEntry = createEntry (self.optFrame, "Bits", audioBits, width = 3)
 
-    bkends = ["arecord", "jack_capture", "jackrec", "eca"]
     Label (self.optFrame, text = "Backend").pack (side = LEFT, fill = Y)
+    bkends = ["arecord", "jack_capture", "jackrec", "eca"]
     self.bkEndVar = StringVar (); self.bkEndVar.set (audioBkEnd)
     bkendList = OptionMenu (self.optFrame, self.bkEndVar, *bkends)
     bkendList.pack (side = LEFT, fill = Y)

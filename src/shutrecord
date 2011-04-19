@@ -23,6 +23,7 @@ Records a file, managing the retrying, naming and editing workflow.
   -r RATE       sets the sampling rate (default: $r)
   -b BPS        sets the bits / sample (default: $b)
   --bkend BKE   sets the capture back-end (default: detected)
+  --arec        sets arecord as the back-end
   --jcap        sets jack_capture as the back-end (recommended!)
   --jrec        sets jack_record as the back-end
   --eca         sets ecasound as the back-end
@@ -155,6 +156,7 @@ while test $# -gt 0; do case "$1" in
   --output|-o) FILESUFFIX="$2"; shift 2 ;;
   --bkend) BKEND="$2"; shift 2 ;;
   --cmd) BKEND="cmd"; REC="$2"; shift; break ;;
+  --arec) BKEND="arecord"; shift ;;
   --eca) BKEND="ecasound"; shift ;;
   --jrec) BKEND="jackrec"; shift ;;
   --jcap) BKEND="jack_capture"; shift ;;

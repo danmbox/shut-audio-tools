@@ -30,4 +30,4 @@ printusage if (grep { "$_" eq "$arg" } "-h", "--help", "-?");
 printversion if (grep { "$_" eq "$arg" } "--version");
 my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime (time);
 printf "%04d%02d%02d_%02d_%02d_%02d-%s\n",
-  $year + 1900, $mon, $mday, $hour, $min, $sec, $arg;
+  $year + 1900, $mon + 1, $mday, $hour, $min, $sec, $arg;

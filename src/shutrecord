@@ -523,7 +523,7 @@ class RecordCtl (Tk):
         not tkMessageBox.askyesno ("Save recording", "Keep file (" + recfname + ")?")):
       tryrm (recfname)
 
-  def onFnameChange (cmdFrame):
+  def onFnameChange (self):
     global recfname
     if recfname == self.fnameVar.get (): return
     self.onAbandonRec ()

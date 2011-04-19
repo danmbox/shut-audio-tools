@@ -1,3 +1,12 @@
+shut-audio-tools (1.0-3) unstable; urgency=low
+
+  * Pick up fixes from upstream:
+    + datetitle should count months as 1..12, not 0..11
+    + shutlp should use unique jack client name
+    + shutrecord should auto-detect back-end
+
+ -- Dan Muresan <danmbox@gmail.com>  Tue, 19 Apr 2011 13:47:31 +0300
+
 shut-audio-tools (1.0-2) unstable; urgency=low
 
   * shut-actl should build without special imports

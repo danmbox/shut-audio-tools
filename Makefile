@@ -54,7 +54,8 @@ xdebian: srcdist
 	mv $(DISTNAME).tar.gz $(MYNAME)_$(RELEASE).orig.tar.gz; \
 	cd $(DISTNAME); make clean; $(RM) -r debian; mv mydebian debian; \
 	dch -p -v $(RELEASE)'-1~'`date '+%Y%m%d'`'~local1' "Local build."; \
-	printf "%s " "Debian directory in "; pwd
+	printf "To build:\ncd %s\n" "`pwd`"; \
+	echo 'debuild -i -b -us -uc'
 
 showvars:
 	@echo TMP_PAT: $(TMP_PAT)

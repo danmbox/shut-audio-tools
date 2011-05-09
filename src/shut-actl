@@ -186,9 +186,14 @@ class App (Tk):
     Button (setupFrame2, text = "Unloop", command = self.removeLoop).pack (side = LEFT)
     Button (setupFrame2, text = "QJackCtl", command =
             lambda: Popen ("qjackctl")).pack (side = LEFT)
-    Button (setupFrame2, text = "Reset LASH", command = resetLash).pack (side = LEFT)
 
     menuBar = Menu (self)
+
+    paMenu = Menu (menuBar, tearoff = 0)
+    paMenu.add_command (label = "PAVUControl", command = lambda: Popen ("pavucontrol"))
+    paMenu.add_command (label = "ALSAMixer", command =
+                        lambda: Popen (["x-terminal-emulator", "-e", "alsamixer"]))
+    menuBar.add_cascade (label = "Pulse", menu = paMenu)
 
     jackMenu = Menu (menuBar, tearoff = 0)
     jackMenu.add_command (label = "Patchage", command = lambda: Popen ("patchage"))
@@ -198,11 +203,10 @@ class App (Tk):
     jackMenu.add_command (label = "gtklick", command = lambda: Popen ("gtklick"))
     menuBar.add_cascade (label = "Jack", menu = jackMenu)
 
-    paMenu = Menu (menuBar, tearoff = 0)
-    paMenu.add_command (label = "PAVUControl", command = lambda: Popen ("pavucontrol"))
-    paMenu.add_command (label = "ALSAMixer", command =
-                        lambda: Popen (["x-terminal-emulator", "-e", "alsamixer"]))
-    menuBar.add_cascade (label = "Pulse", menu = paMenu)
+    lashMenu = Menu (menuBar, tearoff = 0)
+    lashMenu.add_command (label = "Reset LASH", command = resetLash)
+    lashMenu.add_command (label = "laditray", command = lambda: Popen ("laditray"))
+    menuBar.add_cascade (label = "Session", menu = lashMenu)
 
     self.config (menu = menuBar)
 

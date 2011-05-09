@@ -1,5 +1,5 @@
-DESTDIR     =
 prefix      = /usr/local
+
 exec_prefix = $(prefix)
 bindir      = $(exec_prefix)/bin
 sbindir     = $(exec_prefix)/sbin
@@ -12,10 +12,13 @@ INSTALL         = install
 INSTALL_PROGRAM = $(INSTALL)
 INSTALL_DATA    = $(INSTALL) -m 644
 
+DESTDIR =
+
 ###
 
 TMP_WILD := $(TMP_WILD) *~ *.bak cscope.*
 TMP_PAT  := $(subst *,%,$(TMP_WILD))
+
 RELEASE  := $(shell cat release.txt)
 MYNAME   := shut-audio-tools
 DISTNAME  := $(MYNAME)-$(RELEASE)

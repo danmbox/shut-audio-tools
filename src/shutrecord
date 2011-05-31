@@ -8,7 +8,7 @@ MYNAME=${0##*/}; MYVERSION="1.0"
 FILESUFFIX='rec.flac'
 D=''; c=2; r=48000; b=24
 BKEND="arecord"; test -n "`pidof jackd jackdbus`" &&
-  { BKEND="jack_capture"; r=`jack_samplerate`; }
+  { BKEND="jack_capture"; r=`jack_samplerate`; c="system:capture_1,system:capture_2"; }
 
 printusage () {
 cat <<EOF
@@ -434,9 +434,39 @@ class SettingsDialog (Dialog):
     self.dirname = os.getcwd ()
     Dialog.__init__ (self, master, title = "Settings")
 
+  def addJackPort (self, event = None):
+    s = self.chanEntry.get ()
+    if s == "" or s == "2": self.clearJackPorts (); s = ""
+    if s: self.chanEntry.insert (END, ",")
+    self.chanEntry.insert (END, self.jackPortVar.get ())
+
+  def clearJackPorts (self, event = None):
+    self.chanEntry.delete (0, END)
+
+  def bkEndChanged (self):
+    if self.bkEndVar.get () in ["jack_capture", "jackrec"]:
+      self.jackPortFrameChildren = Frame (self.jackPortFrame)
+      jackPorts = Popen (["jack_lsp", "-p"], stdout=PIPE).communicate () [0].splitlines ()
+      jackPorts = [port for (port, prop) in zip (*[iter (jackPorts)] * 2) if "output" in prop]
+      self.jackPortVar = StringVar (); self.jackPortVar.set (jackPorts [0])
+      jackPortList = OptionMenu (self.jackPortFrameChildren, self.jackPortVar, *jackPorts)
+      jackPortList.pack (side = LEFT)
+      Button (self.jackPortFrameChildren, text = "Add to channels", command = self.addJackPort).pack (side = LEFT)
+      Button (self.jackPortFrameChildren, text = "Clear all", command = self.clearJackPorts).pack (side = LEFT)
+      self.jackPortFrameChildren.pack ()
+    else:
+      if self.jackPortFrameChildren:
+        self.jackPortFrameChildren.destroy ()
+        self.jackPortFrameChildren = None
+
   def body (self, master):
+
     self.optFrame = Frame (self)
     self.optFrame.pack (side = TOP, expand = NO, fill = X)
+
+    self.jackPortFrame = Frame (self)
+    self.jackPortFrame.pack (side = TOP)
+    self.jackPortFrameChildren = None
 
     self.fSuffixEntry = createEntry (self.optFrame, "File suffix", fsuffix, width = 10, expand = YES, fill = BOTH)
     self.dirButton = Button (self.optFrame, text = fnameText (self.dirname),
@@ -444,13 +474,15 @@ class SettingsDialog (Dialog):
     Label (self.optFrame, text = "in").pack (side = LEFT, fill = Y, padx = 3)
     self.dirButton.pack (side = LEFT, fill = Y)
     self.srcEntry = createEntry (self.optFrame, "Source", audioDev, width = 6)
-    self.chanEntry = createEntry (self.optFrame, "Channels", audioChan, width = 15)
     self.rateEntry = createEntry (self.optFrame, "Rate", audioRate, width = 6)
     self.bitsEntry = createEntry (self.optFrame, "Bits", audioBits, width = 3)
+    self.chanEntry = createEntry (self.optFrame, "Channels", audioChan, width = 15)
 
     Label (self.optFrame, text = "Backend").pack (side = LEFT, fill = Y)
     bkends = ["arecord", "jack_capture", "jackrec", "eca"]
-    self.bkEndVar = StringVar (); self.bkEndVar.set (audioBkEnd)
+    self.bkEndVar = StringVar ()
+    self.bkEndVar.trace ("w", lambda *args: self.bkEndChanged ())
+    self.bkEndVar.set (audioBkEnd)
     bkendList = OptionMenu (self.optFrame, self.bkEndVar, *bkends)
     bkendList.pack (side = LEFT, fill = Y)
 

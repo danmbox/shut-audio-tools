@@ -25,7 +25,7 @@ In the first variant, computes the flags appropriate for an audio file.
 
 In the second variant, the user specifies parameters directly in SPEC:
 
-  -C NCHAN   sets the number of channels (default: $c)    
+  -c NCHAN   sets the number of channels (default: $c)
   -r RATE    sets the sampling rate (default: $r)
   -b BPS     sets the bits / sample (default: $b)
   -e ENDIAN  sets the endian-ness ("little" or "big", default: $e)
@@ -43,8 +43,8 @@ EOF
 
 # TODO: unsigned formats
 
-case "$1" in
-  -h|--help|"-?") printusage; exit ;;
+case "${1:-}" in
+  -h|--help|"-?"|"") printusage; exit ;;
   --version) printversion; exit ;;
 esac
 

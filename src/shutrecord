@@ -129,7 +129,7 @@ TRAPPED='INT TERM EXIT'
 traphandler2 () {
   killfpids2 TERM 1 "$DIR"/recpid "$DIR"/recpid2 "$DIR"/reclooppid
   rm -rf "$DIR"
-  trap - $TRAPPED; exit 0
+  trap - $TRAPPED
 }
 traphandler1 () {
   set +e
@@ -141,6 +141,7 @@ traphandler1 () {
 }
 trap 'traphandler1' $TRAPPED
 
+SAVEDOPTS=""
 LOGOUTPUT="gui"
 SETUPSTART=""
 if test -n "${DISPLAY:-}"; then FRONTEND=tkintermain; else FRONTEND=textmain; fi
@@ -148,11 +149,11 @@ if test -n "${DISPLAY:-}"; then FRONTEND=tkintermain; else FRONTEND=textmain; fi
 while test $# -gt 0; do case "$1" in
   -h|--help|"-?") printusage; exit ;;
   --version) printversion; exit ;;
-  --lash) shift; exec lash_wrap -l "$MYNAME" -- "$0" "$@" || exit 1 ;;
-  --text) FRONTEND=textmain; shift ;;
+  --lash) SAVEDOPTS="$SAVEDOPTS $1"; shift; exec lash_wrap -l "$MYNAME" -- "$0" "$@" || exit 1 ;;
+  --text) SAVEDOPTS="$SAVEDOPTS $1"; FRONTEND=textmain; shift ;;
   --setup) SETUPSTART=y; shift ;;
-  --print-log) LOGOUTPUT="-" ; shift ;;
-  --debug) set -x; shift ;;
+  --print-log) SAVEDOPTS="$SAVEDOPTS $1"; LOGOUTPUT="-" ; shift ;;
+  --debug) SAVEDOPTS="$SAVEDOPTS $1"; set -x; shift ;;
   -D|-c|-r|-b) eval ${1#-}="'""$2""'"; shift 2 ;;
   --output|-o) FILESUFFIX="$2"; shift 2 ;;
   --bkend) BKEND="$2"; shift 2 ;;
@@ -495,10 +496,11 @@ class SettingsDialog (Dialog):
       self.dirButton.config (text = fnameText (dirname))
 
   def save (self):
+    dev = self.srcEntry.get ()
+    devopts = ["-D", dev] if (dev) else []
     self.result = (self.dirname,
-      [appcmd,
-       "-o", self.fSuffixEntry.get (), "-D", self.srcEntry.get (),
-       "-c", self.chanEntry.get (), "-r", self.rateEntry.get (),
+      ["-o", self.fSuffixEntry.get (), ] + devopts +
+      ["-c", self.chanEntry.get (), "-r", self.rateEntry.get (),
        "-b", self.bitsEntry.get (), "--bkend", self.bkEndVar.get ()])
 
 class RecordCtl (Tk):
@@ -631,13 +633,15 @@ class RecordCtl (Tk):
 
   def onSettings (self):
     optDialog = SettingsDialog (self)
-    if optDialog.result:
+    r = optDialog.result
+    if r:
       self.onAbandonRec ()
       #signal.signal(signal.SIGCHLD, signal.SIG_IGN)
       cmdfifo.close ()
-
-      os.chdir (optDialog.result [0])
-      Popen (optDialog.result [1])
+      with open (appDirFile ("nextcmd"), "w") as f:
+        f.write (r [0] + "\n" + r [1] [1] + "\n")
+        for s in r [1] [2:]: f.write (" " + (s if s else "\"\""))
+        f.write ("\n")
       self.quit ()
 
   def onQuit (self):
@@ -647,6 +651,12 @@ class RecordCtl (Tk):
 RecordCtl ().mainloop ()
 
 EOF
+
+  test -f "$DIR"/nextcmd || return 0
+  { read d; read fsuf; read cmdline; } <"$DIR"/nextcmd
+  traphandler1
+  cd "$d"
+  exec "$MYNAME" $SAVEDOPTS -o "$fsuf" $cmdline
 }
 
 editfile () {

@@ -627,7 +627,7 @@ class RecordCtl (Tk):
     if self.logShown.get ():
       self.updateLog ()
     else:
-      self.logFrame.pack_forget (); self.logFrame = None
+      self.logFrame.pack_forget (); self.logFrame.destroy (); self.logFrame = None
 
   def onSettings (self):
     optDialog = SettingsDialog (self)

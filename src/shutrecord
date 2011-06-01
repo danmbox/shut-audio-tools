@@ -330,7 +330,9 @@ def catfile (fname):
 
 def aliveFPid (fpid, ifMissing = False):
   try:
-    return 0 < os.path.getsize (fpid) and None == os.kill (int (catfile (fpid)), 0)
+    pid = catfile (fpid)
+    if not pid: return ifMissing
+    return 0 < os.path.getsize (fpid) and None == os.kill (int (pid), 0)
   except OSError as e: return ifMissing
 
 def killfpid (fpid, sig):

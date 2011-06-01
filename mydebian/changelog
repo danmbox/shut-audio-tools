@@ -1,3 +1,10 @@
+shut-audio-tools (1.0.4-1) unstable; urgency=low
+
+  * New upstream version
+  * Drop all patches
+
+ -- Dan Muresan <danmbox@gmail.com>  Tue, 31 May 2011 15:54:41 +0300
+
 shut-audio-tools (1.0-3) unstable; urgency=low
 
   * Pick up fixes from upstream:

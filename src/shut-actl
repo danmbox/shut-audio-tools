@@ -193,6 +193,7 @@ class App (Tk):
 
     jackMenu = Menu (menuBar, tearoff = 0)
     jackMenu.add_command (label = "Patchage", command = lambda: Popen ("patchage"))
+    jackMenu.add_command (label = "GJackTransport", command = lambda: Popen ("gjacktransport"))
     jackMenu.add_command (label = "JackMixer", command = lambda: Popen ("jack_mixer"))
     jackMenu.add_command (label = "QSynth", command = lambda: Popen ("qsynth"))
     jackMenu.add_command (label = "JackRack", command = lambda: Popen ("jack-rack"))

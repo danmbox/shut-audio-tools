@@ -142,10 +142,6 @@ def restartPulse ():
   call (["pulseaudio", "--kill"])
   call (["pulseaudio", "--start"])
 
-def resetLash ():
-  call (["lash_control", "exit"])
-  Popen (["lashd", "-d", ".config/lash"])
-
 # only monochrome
 def setIconBitmap_b64 (root, icon_b64):
   tmpf = tempfile.mktemp (prefix = "audioctl-", suffix = ".xbm")
@@ -204,7 +200,6 @@ class App (Tk):
     menuBar.add_cascade (label = "Jack", menu = jackMenu)
 
     lashMenu = Menu (menuBar, tearoff = 0)
-    lashMenu.add_command (label = "Reset LASH", command = resetLash)
     lashMenu.add_command (label = "laditray", command = lambda: Popen ("laditray"))
     menuBar.add_cascade (label = "Session", menu = lashMenu)
 
